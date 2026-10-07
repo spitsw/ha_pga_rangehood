@@ -42,7 +42,7 @@ both clear automatically once the broker is reachable again.
 
 1. Make sure [HACS](https://hacs.xyz/) is installed.
 2. Add this repository as a **custom repository** in HACS:
-   - URL: `https://github.com/spitsw/hacs_sirius_rangehood`
+   - URL: `https://github.com/spitsw/hacs_pga_rangehood`
    - Category: **Integration**
 3. Search for "Sirius Rangehood" in HACS and install.
 4. Restart Home Assistant.

@@ -1,13 +1,13 @@
 {
-  "domain": "sirius_rangehood_custom",
-  "name": "Sirius Rangehood",
+  "domain": "pga_rangehood_custom",
+  "name": "Sirius and Pando Rangehood",
   "codeowners": ["@spitsw"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/spitsw/hacs_sirius_rangehood",
+  "documentation": "https://github.com/spitsw/hacs_pga_rangehood",
   "integration_type": "hub",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/spitsw/hacs_sirius_rangehood/issues",
+  "issue_tracker": "https://github.com/spitsw/hacs_pga_rangehood/issues",
   "loggers": ["custom_components.sirius_rangehood_custom"],
   "requirements": ["paho-mqtt>=2.1.0"],
   "version": "1.1.1"
