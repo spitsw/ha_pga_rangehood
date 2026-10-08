@@ -175,9 +175,14 @@ and constructs entities from `(coordinator, did, device, entry)`.
   `capabilities[].value` fields are placeholder/default values, not live state,
   so only `_limits` (min/max) is kept. Live values arrive via MQTT. A test
   enforces this — do not "restore" capability values into the flat dict.
-- TLS verification is intentionally disabled (`CERT_NONE`, hostname check off)
-  for the Sirius broker because its certificate is expired (ADR-1). `insecure_tls`
-  from the config flow controls the equivalent for the HTTP client.
+- The Sirius broker's MQTT certificate has an **expired leaf** (its DigiCert
+  chain is otherwise valid). We **verify the chain and hostname** against the
+  system trust store plus a bundled `api/digicert_global_root_ca.pem` (its chain
+  ends at DigiCert's legacy Global Root CA, which current certifi and some OS
+  trust stores no longer ship), and disable only OpenSSL's time check
+  (`X509_V_FLAG_NO_CHECK_TIME`, `0x200000`) — never `CERT_NONE` (ADR-1).
+  `insecure_tls` from the config flow controls the equivalent for the HTTP client
+  (whose cert is valid until 2027).
 - The MQTT broker is an external, single-purpose connection managed directly
   with `aiomqtt` (declared in `manifest.json`), **not** HA's global `mqtt`
   integration — do not move it there (ADR-1).

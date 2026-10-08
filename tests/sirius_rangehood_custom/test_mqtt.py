@@ -10,6 +10,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from custom_components.sirius_rangehood_custom.api.mqtt import (
+    _BROKER_ROOT_CA,
+    _X509_V_FLAG_NO_CHECK_TIME,
     SiriusMQTT,
     _build_tls_context,
 )
@@ -160,11 +162,12 @@ class TestConnectionState:
 class TestTlsContext:
     """Verify the TLS context is built off the event loop and only when needed."""
 
-    def test_build_disables_verification(self) -> None:
-        """The broker's expired certificate forces verification off (ADR-1)."""
+    def test_build_tolerates_expired_leaf(self) -> None:
+        """Verify the chain; skip only the expired leaf's time check."""
         context = _build_tls_context()
-        assert context.verify_mode == ssl.CERT_NONE
-        assert context.check_hostname is False
+        assert context.verify_mode == ssl.CERT_REQUIRED
+        assert context.check_hostname is True
+        assert context.verify_flags & _X509_V_FLAG_NO_CHECK_TIME
 
     def test_init_defers_context_creation(self) -> None:
         """Constructing the client must not read CA paths on the event loop."""
@@ -175,3 +178,7 @@ class TestTlsContext:
         mqtt = _make_mqtt()
         with pytest.raises(RuntimeError):
             mqtt._new_client()
+
+    def test_broker_root_is_bundled(self) -> None:
+        """The broker's legacy root certificate ships beside mqtt.py."""
+        assert _BROKER_ROOT_CA.is_file()

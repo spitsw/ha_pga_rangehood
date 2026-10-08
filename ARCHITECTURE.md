@@ -27,8 +27,13 @@ independently of HA's infrastructure.
 **Consequences**:
 - No dependency on HA's global MQTT integration — the component
   works regardless of the user's existing MQTT setup.
-- Full control over TLS configuration: the expired broker certificate is
-  accepted (`CERT_NONE`), independent of HA's MQTT settings.
+- Full control over TLS configuration: the broker's certificate **chain and
+  hostname are verified** against the system trust store plus a bundled copy
+  of DigiCert's legacy **Global Root CA** (`api/digicert_global_root_ca.pem`)
+  — the broker's chain terminates at that root, which current certifi and some
+  OS trust stores no longer ship. Only its expired leaf is tolerated, via
+  OpenSSL's `X509_V_FLAG_NO_CHECK_TIME` (`0x200000`) — not `CERT_NONE`. This
+  is independent of HA's MQTT settings.
 - `aiomqtt` drives paho-mqtt's socket on the HA event loop (via
   `add_reader`), so there is no background thread and no callback
   bridging (see ADR-2).

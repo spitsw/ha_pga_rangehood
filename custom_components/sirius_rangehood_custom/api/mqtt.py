@@ -9,6 +9,7 @@ import json
 import logging
 import ssl
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
@@ -29,19 +30,28 @@ _RECONNECT_MIN_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 120.0
 _CONNECT_TIMEOUT = 10.0
 
+# OpenSSL X509_V_FLAG_NO_CHECK_TIME (not exposed by Python's `ssl`). It disables
+# certificate time checks while still validating the chain and hostname.
+_X509_V_FLAG_NO_CHECK_TIME = 0x200000
+
+# The broker's chain ends at DigiCert's legacy "DigiCert Global Root CA", which
+# current certifi (2026.x) and some OS trust stores no longer ship, so it is
+# bundled to keep the chain verifiable everywhere.
+_BROKER_ROOT_CA = Path(__file__).with_name("digicert_global_root_ca.pem")
+
 
 def _build_tls_context() -> ssl.SSLContext:
     """
     Build the MQTT TLS context.
 
-    ``create_default_context`` reads the system CA paths, so this must run in
-    an executor rather than on the event loop. The Sirius broker's certificate
-    has expired, so server verification is disabled unconditionally (see
-    ARCHITECTURE.md, ADR-1).
+    Reads CA material from disk, so this must run in an executor rather than on
+    the event loop. The broker's chain and hostname are verified against the
+    system trust store plus the bundled broker root, but its expired leaf is
+    tolerated by disabling OpenSSL's time checks (see ADR-1).
     """
     context = ssl.create_default_context()
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE
+    context.load_verify_locations(cafile=str(_BROKER_ROOT_CA))
+    context.verify_flags |= _X509_V_FLAG_NO_CHECK_TIME
     return context
 
 
