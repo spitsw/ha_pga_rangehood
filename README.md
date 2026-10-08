@@ -2,6 +2,13 @@
 
 Home Assistant integration for WiFi-enabled Sirius rangehoods.
 
+> **How it works — control goes through the Sirius cloud.** This integration does
+> **not** talk to your rangehood directly. It signs in to your Sirius account and
+> controls the rangehood **via the Sirius cloud**: commands are sent to the Sirius
+> REST API, and live state arrives over an MQTT connection to the Sirius broker.
+> Your Home Assistant instance and the rangehood must each be able to reach the
+> Sirius cloud — no direct or local network connection to the device is used.
+
 ## Quick Start
 
 1. **Install** — see [Installation](#installation) below, then restart HA.
@@ -25,6 +32,7 @@ choose **Configure custom endpoints** after logging in.
 | **Timer Active** | Start / stop the countdown |
 | **Global Power** | Turn fan and light on/off together |
 | **Bi-Power** | Enable extra airflow and powerful extraction (if supported) |
+| **Reset Filter Worn** | Clear the filter-worn flag and restart the filter clean countdown |
 
 **Sensors** show IP address, WiFi signal strength, firmware version,
 filter life, filter worn alert, and estimated turn-off time.

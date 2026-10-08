@@ -45,6 +45,11 @@
         "name": "Timer Active"
       }
     },
+    "button": {
+      "reset_filter_worn": {
+        "name": "Reset Filter Worn"
+      }
+    },
     "binary_sensor": {
       "filter_worn": {
         "name": "Filter Worn"
