@@ -5,7 +5,7 @@ Rangehood integration.
 
 ---
 
-## ADR-1: Direct paho-mqtt over HA's MQTT integration
+## ADR-1: Direct MQTT via aiomqtt over HA's MQTT integration
 
 **Status**: Accepted
 
@@ -20,49 +20,50 @@ disables certificate hostname validation), so the expired certificate
 alone is not a blocker. However, adding a second MQTT broker via the
 global integration is not supported.
 
-**Decision**: Use the `paho-mqtt` library directly, managing the
-connection lifecycle (`connect`/`loop_start`/`loop_stop`) and TLS
-context independently of HA's infrastructure.
+**Decision**: Use the `aiomqtt` library (an async wrapper over
+`paho-mqtt`) directly, managing the connection lifecycle and TLS context
+independently of HA's infrastructure.
 
 **Consequences**:
 - No dependency on HA's global MQTT integration — the component
   works regardless of the user's existing MQTT setup.
-- Full control over TLS configuration: expired certificates, missing
-  root CAs, and the insecure-TLS fallback are all handled internally.
-- Must manage its own connection lifecycle and thread safety via
-  `call_soon_threadsafe`.
+- Full control over TLS configuration: the expired broker certificate is
+  accepted (`CERT_NONE`), independent of HA's MQTT settings.
+- `aiomqtt` drives paho-mqtt's socket on the HA event loop (via
+  `add_reader`), so there is no background thread and no callback
+  bridging (see ADR-2).
 - The `/status` topic subscription and `values[]` payload flattening
   are handled directly rather than through HA's MQTT platform
   configuration.
 
 ---
 
-## ADR-2: Thread-safe MQTT callback bridge
+## ADR-2: MQTT callbacks run on the HA event loop (aiomqtt)
 
-**Status**: Accepted
+**Status**: Accepted (supersedes the former paho-thread bridge)
 
-**Context**: paho-mqtt calls `_on_message` from a background thread. Home
-Assistant data structures (`device_states`, `coordinator.data`) must only
-be read or written from the HA event loop. A direct call to
-`async_set_updated_data` from the paho thread would crash.
+**Context**: `paho-mqtt` invokes its callbacks (`on_message`, `on_connect`,
+…) from a background network thread, and HA data structures
+(`device_states`, `coordinator.data`) may only be touched on the HA event
+loop. A thread bridge (`call_soon_threadsafe`) was previously required.
 
-**Decision**: Route all MQTT status updates through
-`hass.loop.call_soon_threadsafe()`. The paho-thread callback
-(`_on_mqtt_status`) schedules `_apply_mqtt_update` on the HA event loop.
-`_apply_mqtt_update` mutates `device_states` and calls
-`coordinator.async_set_updated_data()` — both from the correct context.
+**Decision**: Use `aiomqtt`, which runs paho-mqtt's socket directly on the
+event loop (no background thread). A single background task
+(`entry.async_create_background_task`) connects, (re)subscribes, and
+consumes `client.messages`, invoking the coordinator's
+`apply_mqtt_update` / `set_mqtt_connected` **directly** on the loop.
 
 ```
-paho thread → _on_mqtt_status()
-                → call_soon_threadsafe(_apply_mqtt_update, ...)
-                    → HA event loop → device_states[did].update(payload)
-                        → coordinator.async_set_updated_data(...)
+aiomqtt task (HA event loop)
+  → async for message in client.messages
+      → _handle_message(message) → status_callback(device_id, values)
+          → coordinator.apply_mqtt_update(...)
 ```
 
 **Consequences**:
-- No `RuntimeError: Non-thread-safe operation` or data races.
-- Slight latency between MQTT message receipt and state update (one
-  event-loop iteration), which is negligible for a rangehood.
+- No thread bridge and no `call_soon_threadsafe` for state updates.
+- Reconnection is an explicit loop in the task (ADR-10) driven by
+  `aiomqtt.MqttError`.
 
 ---
 
@@ -118,7 +119,7 @@ User action → FanEntity.async_turn_on()
                 → hub.async_send_command()
                     → HTTP POST /set_value {command: "setValue", ...}
 Device responds → MQTT status topic
-                    → _on_message → call_soon_threadsafe → coordinator
+                    → aiomqtt message loop → coordinator
                         → FanEntity updated via CoordinatorEntity
 ```
 
@@ -271,21 +272,33 @@ immediately without retry.
 
 **Status**: Accepted
 
-**Context**: paho-mqtt's default reconnect behaviour after a disconnection
-is a fixed 1-second delay. During a cloud outage this can produce a
-thundering-herd of reconnect attempts against the Sirius broker.
+**Context**: A dropped MQTT connection should be re-established without
+hammering the Sirius broker during a cloud outage. (`paho-mqtt`'s own
+`reconnect_delay_set` is not used — `aiomqtt` surfaces the disconnect as an
+`MqttError` and the reconnect loop is ours, see ADR-2.)
 
-**Decision**: Configure paho-mqtt's built-in `reconnect_delay_set()`
-with `min_delay=1, max_delay=120`. The first reconnect attempt happens
-after 1 second; after each failure the delay doubles up to a 2-minute
-cap. When the broker comes back, the first attempt succeeds at the
-current backoff level.
+**Decision**: The MQTT task reconnects in a loop, doubling the delay from
+**1 s up to a 120 s cap** after each failure (`aiomqtt.MqttError`), and
+re-subscribes to every device topic on each successful reconnect.
+
+```python
+delay = 1
+while True:
+    try:
+        async with client:  # connect
+            subscribe(...)  # (re)subscribe on every connect
+            async for message in client.messages:
+                ...
+    except aiomqtt.MqttError:
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 120)
+```
 
 **Consequences**:
 - No unnecessary load on the Sirius broker during outages.
-- Reconnection is automatic — no custom reconnect logic needed.
-- The component continues to work via HTTP polling while MQTT is
-  disconnected (coordinator fallback).
+- Reconnection is automatic (within the task) — no external logic needed.
+- The component continues to work via the HTTP `getStatus` heartbeat while
+  MQTT is disconnected (coordinator fallback).
 
 ---
 

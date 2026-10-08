@@ -1,217 +1,177 @@
-"""Tests for mqtt.py — MQTT payload parsing and SSL context."""
+"""Tests for mqtt.py — aiomqtt message parsing and subscription tracking."""
 
 from __future__ import annotations
 
 import json
 import ssl
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-from custom_components.sirius_rangehood_custom.api.mqtt import SiriusMQTT
-
-# OpenSSL error codes used by _verify_callback — these may not be exposed
-# as constants in all Python builds, so we reference them by value.
-# X509_V_ERR_CERT_HAS_EXPIRED = 10
-# X509_V_ERR_CERT_UNTRUSTED   = 27
+from custom_components.sirius_rangehood_custom.api.mqtt import (
+    SiriusMQTT,
+    _build_tls_context,
+)
 
 
-class TestSSLContext:
-    """Verify the custom SSL context tolerates known certificate issues."""
-
-    def test_relaxed_verification(self) -> None:
-        """_create_ssl_context should use CERT_OPTIONAL with no hostname check."""
-        # Can't call _create_ssl_context directly (async + blocking I/O),
-        # so we verify the module's expected config via a local context.
-        ctx = ssl.create_default_context()
-        ctx.verify_mode = ssl.CERT_OPTIONAL
-        ctx.check_hostname = False
-        assert ctx.verify_mode == ssl.CERT_OPTIONAL
-        assert ctx.check_hostname is False
+def _make_mqtt(status_callback=None, connection_callback=None):
+    """Build a SiriusMQTT without connecting."""
+    return SiriusMQTT(
+        MagicMock(),
+        "mqtts://broker.example.com:8884",
+        "user",
+        "pass",
+        status_callback,
+        connection_callback=connection_callback,
+    )
 
 
-class TestMQTTInit:
-    """Verify MQTT client initialisation and URL parsing."""
+def _message(topic: str, payload: bytes) -> SimpleNamespace:
+    """Build a stand-in for an `aiomqtt.Message`."""
+    return SimpleNamespace(topic=SimpleNamespace(value=topic), payload=payload)
+
+
+class TestInit:
+    """Verify endpoint parsing and defaults."""
 
     def test_parses_endpoint(self) -> None:
-        """Should extract host and port from mqtts:// URL."""
-        mqtt = SiriusMQTT(
-            MagicMock(), "mqtts://broker.example.com:8884", "user", "pass"
-        )
+        """Extract host and port from the mqtts:// URL."""
+        mqtt = _make_mqtt()
         assert mqtt._host == "broker.example.com"
         assert mqtt._port == 8884
 
     def test_default_port(self) -> None:
-        """Should default to port 8884 when no port is specified."""
+        """Default to port 8884 when the URL omits a port."""
         mqtt = SiriusMQTT(MagicMock(), "mqtts://broker.example.com", "user", "pass")
-        assert mqtt._host == "broker.example.com"
         assert mqtt._port == 8884
 
-    def test_parses_endpoint_without_mqtts_scheme(self) -> None:
-        """Host parsing should work even without scheme prefix."""
-        mqtt = SiriusMQTT(MagicMock(), "mqtts://host:1234", "user", "pass")
-        assert mqtt._host == "host"
-        assert mqtt._port == 1234
+    def test_not_connected_initially(self) -> None:
+        """The client starts disconnected."""
+        assert _make_mqtt().connected is False
 
 
-class TestMQTTOnMessage:
-    """Verify MQTT message parsing and callback invocation."""
+class TestSubscribeDevice:
+    """Verify devices are tracked for (re)subscription."""
 
-    @pytest.fixture
-    def mqtt_client(self):
-        """Create a SiriusMQTT with a mock callback."""
+    def test_registers_device(self) -> None:
+        """subscribe_device should register the device id."""
+        mqtt = _make_mqtt()
+        mqtt.subscribe_device("device-1")
+        assert "device-1" in mqtt._subscribed_devices
+
+    def test_status_topic(self) -> None:
+        """The status topic is per-device."""
+        assert (
+            SiriusMQTT._status_topic("device-1")
+            == "root/codermine/devices/device-1/status"
+        )
+
+
+class TestHandleMessage:
+    """Verify status payloads are parsed and forwarded."""
+
+    def test_parses_valid_payload(self) -> None:
+        """Flatten `values` and extract the device id from the topic."""
         callback = MagicMock()
-        client = SiriusMQTT(MagicMock(), "mqtts://host:8883", "user", "pass", callback)
-        return client, callback
-
-    def test_parses_valid_payload(self, mqtt_client) -> None:
-        """_on_message should parse JSON and extract device ID from topic."""
-        client, callback = mqtt_client
+        mqtt = _make_mqtt(callback)
         payload = json.dumps(
-            {
-                "values": [{"id": "device.fanSpeed", "value": 3}],
-            }
-        ).encode("utf-8")
-
-        msg = MagicMock()
-        msg.topic = "root/codermine/devices/device-1/status"
-        msg.payload = payload
-
-        client._on_message(None, None, msg)
-
+            {"values": [{"id": "device.fanSpeed", "value": 3}]}
+        ).encode()
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/status", payload)
+        )
         callback.assert_called_once_with("device-1", {"device.fanSpeed": 3})
 
-    def test_multiple_values(self, mqtt_client) -> None:
-        """_on_message should flatten multiple values."""
-        client, callback = mqtt_client
+    def test_multiple_values(self) -> None:
+        """Flatten multiple values."""
+        callback = MagicMock()
+        mqtt = _make_mqtt(callback)
         payload = json.dumps(
             {
                 "values": [
                     {"id": "device.onOff", "value": 1.0},
                     {"id": "device.fanSpeed", "value": 2},
-                    {"id": "device.lightOnOff", "value": 1.0},
-                ],
+                ]
             }
-        ).encode("utf-8")
-
-        msg = MagicMock()
-        msg.topic = "root/codermine/devices/device-1/status"
-        msg.payload = payload
-
-        client._on_message(None, None, msg)
-
+        ).encode()
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/status", payload)
+        )
         callback.assert_called_once_with(
-            "device-1",
-            {"device.onOff": 1.0, "device.fanSpeed": 2, "device.lightOnOff": 1.0},
+            "device-1", {"device.onOff": 1.0, "device.fanSpeed": 2}
         )
 
-    def test_skips_non_dict_items(self, mqtt_client) -> None:
-        """_on_message should skip values entries that are not dicts or lack 'id'."""
-        client, callback = mqtt_client
+    def test_skips_non_dict_items(self) -> None:
+        """Skip values entries that are not dicts or lack an id."""
+        callback = MagicMock()
+        mqtt = _make_mqtt(callback)
         payload = json.dumps(
             {
                 "values": [
                     {"id": "device.onOff", "value": 1.0},
                     "not-a-dict",
                     {"notId": "device.fanSpeed", "value": 3},
-                ],
+                ]
             }
-        ).encode("utf-8")
-
-        msg = MagicMock()
-        msg.topic = "root/codermine/devices/device-1/status"
-        msg.payload = payload
-
-        client._on_message(None, None, msg)
-
+        ).encode()
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/status", payload)
+        )
         callback.assert_called_once_with("device-1", {"device.onOff": 1.0})
 
-    def test_invalid_json(self, mqtt_client) -> None:
-        """_on_message should not crash on invalid JSON."""
-        client, callback = mqtt_client
-        msg = MagicMock()
-        msg.topic = "root/codermine/devices/device-1/status"
-        msg.payload = b"not-json"
-
-        client._on_message(None, None, msg)
-        callback.assert_not_called()
-
-    def test_missing_device_id_in_payload(self, mqtt_client) -> None:
-        """_on_message should extract device ID from topic when payload has none."""
-        client, callback = mqtt_client
-        payload = json.dumps({"values": [{"id": "x", "value": 1}]}).encode("utf-8")
-        msg = MagicMock()
-        msg.topic = "root/codermine/devices/device-1/status"
-        msg.payload = payload
-
-        client._on_message(None, None, msg)
-        callback.assert_called_once_with("device-1", {"x": 1})
-
-    def test_missing_device_id_in_topic_too(self, mqtt_client) -> None:
-        """_on_message should not call callback when topic has no device ID."""
-        client, callback = mqtt_client
-        payload = json.dumps({"values": [{"id": "x", "value": 1}]}).encode("utf-8")
-        msg = MagicMock()
-        msg.topic = "root/unknown/status"
-        msg.payload = payload
-
-        client._on_message(None, None, msg)
-        callback.assert_not_called()
-
-
-class TestMQTTSubscription:
-    """Verify subscribe_device registers the status topic correctly."""
-
-    def test_subscribes_status(self) -> None:
-        """_subscribe_device should subscribe status topic."""
-        client = SiriusMQTT(MagicMock(), "mqtts://host:8883", "user", "pass")
-        client._client = MagicMock()
-        client._client.is_connected.return_value = True
-
-        client.subscribe_device("device-1")
-
-        status_topic = "root/codermine/devices/device-1/status"
-        client._client.subscribe.assert_called_once_with(status_topic, qos=1)
-
-
-class TestMQTTConnection:
-    """Verify connection-state changes reach the connection callback."""
-
-    def test_on_connect_reports_connected(self) -> None:
-        """A successful CONNACK should report connected."""
+    def test_invalid_json(self) -> None:
+        """Invalid JSON must not raise or call the callback."""
         callback = MagicMock()
-        client = SiriusMQTT(
-            MagicMock(),
-            "mqtts://host:8883",
-            "user",
-            "pass",
-            connection_callback=callback,
+        mqtt = _make_mqtt(callback)
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/status", b"not-json")
         )
-        client._on_connect(None, None, None, 0)
+        callback.assert_not_called()
+
+    def test_missing_device_id_in_topic(self) -> None:
+        """No callback when the topic has no `devices/<id>` segment."""
+        callback = MagicMock()
+        mqtt = _make_mqtt(callback)
+        payload = json.dumps({"values": [{"id": "x", "value": 1}]}).encode()
+        mqtt._handle_message(_message("root/unknown/status", payload))
+        callback.assert_not_called()
+
+
+class TestConnectionState:
+    """Verify connectivity changes reach the connection callback."""
+
+    def test_set_connected_notifies(self) -> None:
+        """A connectivity change notifies the callback once."""
+        callback = MagicMock()
+        mqtt = _make_mqtt(connection_callback=callback)
+        mqtt._set_connected(connected=True)
+        assert mqtt.connected is True
         callback.assert_called_once_with(True)
 
-    def test_on_connect_failure_reports_disconnected(self) -> None:
-        """A non-zero CONNACK should report disconnected."""
+    def test_repeated_state_does_not_notify(self) -> None:
+        """Re-setting the same state does not re-notify."""
         callback = MagicMock()
-        client = SiriusMQTT(
-            MagicMock(),
-            "mqtts://host:8883",
-            "user",
-            "pass",
-            connection_callback=callback,
-        )
-        client._on_connect(None, None, None, 5)
-        callback.assert_called_once_with(False)
+        mqtt = _make_mqtt(connection_callback=callback)
+        mqtt._set_connected(connected=False)  # already disconnected
+        callback.assert_not_called()
 
-    def test_on_disconnect_reports_disconnected(self) -> None:
-        """A disconnect should report disconnected."""
-        callback = MagicMock()
-        client = SiriusMQTT(
-            MagicMock(),
-            "mqtts://host:8883",
-            "user",
-            "pass",
-            connection_callback=callback,
-        )
-        client._on_disconnect(None, None, 1)
-        callback.assert_called_once_with(False)
+
+class TestTlsContext:
+    """Verify the TLS context is built off the event loop and only when needed."""
+
+    def test_build_disables_verification(self) -> None:
+        """The broker's expired certificate forces verification off (ADR-1)."""
+        context = _build_tls_context()
+        assert context.verify_mode == ssl.CERT_NONE
+        assert context.check_hostname is False
+
+    def test_init_defers_context_creation(self) -> None:
+        """Constructing the client must not read CA paths on the event loop."""
+        assert _make_mqtt()._tls_context is None
+
+    def test_new_client_requires_started_context(self) -> None:
+        """Building the client before async_start() is a programming error."""
+        mqtt = _make_mqtt()
+        with pytest.raises(RuntimeError):
+            mqtt._new_client()

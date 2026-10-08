@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import ssl
@@ -10,7 +12,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-import paho.mqtt.client as mqtt
+import aiomqtt
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -23,9 +25,34 @@ ConnectionCallback = Callable[[bool], None]  # connected
 _TOPIC_ERRORS = (ValueError, IndexError)
 _JSON_ERRORS = (json.JSONDecodeError, UnicodeDecodeError)
 
+_RECONNECT_MIN_DELAY = 1.0
+_RECONNECT_MAX_DELAY = 120.0
+_CONNECT_TIMEOUT = 10.0
+
+
+def _build_tls_context() -> ssl.SSLContext:
+    """
+    Build the MQTT TLS context.
+
+    ``create_default_context`` reads the system CA paths, so this must run in
+    an executor rather than on the event loop. The Sirius broker's certificate
+    has expired, so server verification is disabled unconditionally (see
+    ARCHITECTURE.md, ADR-1).
+    """
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
 
 class SiriusMQTT:
-    """Manages a MQTTS connection to the Sirius server."""
+    """
+    Manages an MQTTS connection to the Sirius cloud broker.
+
+    The broker is the Sirius cloud's; the client subscribes to per-device status
+    topics. aiomqtt drives paho-mqtt's socket on the Home Assistant event loop
+    (no background thread), so the callbacks fire on the loop directly.
+    """
 
     _DEFAULT_PORT = 8884
     _KEEPALIVE = 60
@@ -39,6 +66,7 @@ class SiriusMQTT:
         status_callback: StatusCallback | None = None,
         *,
         connection_callback: ConnectionCallback | None = None,
+        identifier: str | None = None,
     ) -> None:
         """Parse the broker endpoint and store connection details."""
         self._hass = hass
@@ -46,63 +74,118 @@ class SiriusMQTT:
         self._password = password
         self._status_callback = status_callback
         self._connection_callback = connection_callback
-        self._client: mqtt.Client | None = None
-        self._subscribed_devices: set[str] = set()
+        self._identifier = identifier
 
         parsed = urlparse(mqtts_endpoint)
         self._host = parsed.hostname or "localhost"
         self._port = parsed.port or self._DEFAULT_PORT
 
+        # Built in async_start() via an executor: create_default_context()
+        # reads the system CA paths and must not block the event loop.
+        self._tls_context: ssl.SSLContext | None = None
+
+        self._subscribed_devices: set[str] = set()
+        self._task: asyncio.Task[None] | None = None
+        self._connected = False
+        self._connected_event: asyncio.Event | None = None
+
     @property
     def connected(self) -> bool:
         """Return True when the client is connected to the broker."""
-        return bool(self._client and self._client.is_connected())
+        return self._connected
 
     @property
     def host(self) -> str:
         """Return the broker host."""
         return self._host
 
-    def _on_connect(
-        self,
-        _client: mqtt.Client,
-        _userdata: Any,
-        _flags: Any,
-        rc: int,
-    ) -> None:
-        """Handle connection events."""
-        if rc == 0:
-            _LOGGER.info("MQTT connected to %s", self._host)
-            for device_id in self._subscribed_devices:
-                self._subscribe_device(device_id)
-            if self._connection_callback:
-                self._connection_callback(True)  # noqa: FBT003
-        else:
-            _LOGGER.error("MQTT connection failed (rc=%d)", rc)
-            if self._connection_callback:
-                self._connection_callback(False)  # noqa: FBT003
+    def _new_client(self) -> aiomqtt.Client:
+        """Build an aiomqtt client. Must run on the event loop (aiomqtt needs one)."""
+        context = self._tls_context
+        if context is None:
+            msg = "async_start() must be awaited before the MQTT client is built"
+            raise RuntimeError(msg)
+        return aiomqtt.Client(
+            hostname=self._host,
+            port=self._port,
+            username=self._username,
+            password=self._password,
+            tls_context=context,
+            keepalive=self._KEEPALIVE,
+            identifier=self._identifier,
+        )
 
-    def _on_disconnect(
-        self,
-        _client: mqtt.Client,
-        _userdata: Any,
-        rc: int,
-    ) -> None:
-        """Handle disconnection."""
-        _LOGGER.warning("MQTT disconnected (rc=%d), reconnecting...", rc)
-        if self._connection_callback:
-            self._connection_callback(False)  # noqa: FBT003
-
-    def _on_message(
-        self,
-        _client: mqtt.Client,
-        _userdata: Any,
-        msg: mqtt.MQTTMessage,
-    ) -> None:
-        """Handle incoming MQTT messages."""
-        topic = msg.topic
+    async def async_start(self) -> bool:
+        """Start consuming messages; return True once initially connected."""
+        self._tls_context = await self._hass.async_add_executor_job(_build_tls_context)
+        self._connected_event = asyncio.Event()
+        self._task = self._hass.async_create_background_task(
+            self._run(), f"Sirius MQTT ({self._host})"
+        )
         try:
-            raw = json.loads(msg.payload.decode("utf-8"))
+            await asyncio.wait_for(self._connected_event.wait(), _CONNECT_TIMEOUT)
+        except TimeoutError:
+            _LOGGER.warning(
+                "MQTT broker %s did not connect within %ss",
+                self._host,
+                _CONNECT_TIMEOUT,
+            )
+            return False
+        return True
+
+    async def async_stop(self) -> None:
+        """Stop consuming and disconnect."""
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+        self._set_connected(connected=False)
+
+    def subscribe_device(self, device_id: str) -> None:
+        """Register a device to subscribe to (applied on each connect)."""
+        self._subscribed_devices.add(device_id)
+
+    async def _run(self) -> None:
+        """Maintain the connection, reconnecting with exponential backoff."""
+        client = self._new_client()
+        delay = _RECONNECT_MIN_DELAY
+        while True:
+            try:
+                async with client:
+                    self._set_connected(connected=True)
+                    delay = _RECONNECT_MIN_DELAY
+                    for device_id in self._subscribed_devices:
+                        await client.subscribe(self._status_topic(device_id), qos=1)
+                        _LOGGER.debug("Subscribed to MQTT status for %s", device_id)
+                    async for message in client.messages:
+                        self._handle_message(message)
+            except aiomqtt.MqttError as err:
+                self._set_connected(connected=False)
+                _LOGGER.warning(
+                    "MQTT connection to %s lost (%s); retrying in %.0fs",
+                    self._host,
+                    err,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, _RECONNECT_MAX_DELAY)
+
+    def _set_connected(self, *, connected: bool) -> None:
+        """Record connectivity and notify the listener (HA event loop only)."""
+        if connected == self._connected:
+            return
+        self._connected = connected
+        if connected and self._connected_event is not None:
+            self._connected_event.set()
+        if self._connection_callback:
+            self._connection_callback(connected)
+
+    def _handle_message(self, message: aiomqtt.Message) -> None:
+        """Parse a status message and forward its flattened values."""
+        topic = message.topic.value
+        try:
+            raw = json.loads(message.payload.decode("utf-8"))
         except _JSON_ERRORS as err:
             _LOGGER.warning("Invalid MQTT payload on %s: %s", topic, err)
             return
@@ -130,65 +213,7 @@ class SiriusMQTT:
         if self._status_callback:
             self._status_callback(device_id, flat)
 
-    async def async_start(self) -> bool:
-        """Connect to the MQTTS broker. Returns True if connection established."""
-        client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION1  # pyright: ignore[reportPrivateImportUsage]
-        )
-        client.username_pw_set(self._username, self._password)
-        client.on_connect = self._on_connect
-        client.on_disconnect = self._on_disconnect
-        client.on_message = self._on_message
-        client.reconnect_delay_set(min_delay=1, max_delay=120)
-        self._client = client
-
-        try:
-            # The Sirius broker's certificate has expired, so server
-            # verification is disabled unconditionally (see ADR-1). The
-            # `insecure_tls` config option only governs the HTTPS REST session.
-            def _connect() -> None:
-                ctx = ssl.create_default_context()
-                ctx.check_hostname = False
-                ctx.verify_mode = ssl.CERT_NONE
-                client.tls_set_context(ctx)
-                client.connect(self._host, self._port, keepalive=self._KEEPALIVE)
-
-            _LOGGER.debug("Connecting to MQTT broker %s:%d...", self._host, self._port)
-            await self._hass.async_add_executor_job(_connect)
-            client.loop_start()
-            # Synchronous connect() already handled CONNACK, so _on_connect won't
-            # fire again. Subscribe upfront.
-            for device_id in self._subscribed_devices:
-                self._subscribe_device(device_id)
-        except OSError:
-            _LOGGER.exception("MQTT connection to %s:%d failed", self._host, self._port)
-            return False
-        except Exception:
-            _LOGGER.exception("MQTT connection to %s:%d failed", self._host, self._port)
-            return False
-        else:
-            _LOGGER.info("MQTT connected to %s:%d", self._host, self._port)
-            return True
-
-    async def async_stop(self) -> None:
-        """Disconnect the MQTT client."""
-        if self._client:
-            self._client.disconnect()
-            self._client.loop_stop()
-            self._client = None
-            if self._connection_callback:
-                self._connection_callback(False)  # noqa: FBT003
-            _LOGGER.debug("MQTT disconnected")
-
-    def subscribe_device(self, device_id: str) -> None:
-        """Subscribe to status topics for a device."""
-        self._subscribed_devices.add(device_id)
-        if self._client and self._client.is_connected():
-            self._subscribe_device(device_id)
-
-    def _subscribe_device(self, device_id: str) -> None:
-        """Subscribe to MQTT status topic for a device."""
-        status_topic = f"root/codermine/devices/{device_id}/status"
-        if self._client:
-            self._client.subscribe(status_topic, qos=1)
-            _LOGGER.debug("Subscribed to MQTT status for %s", device_id)
+    @staticmethod
+    def _status_topic(device_id: str) -> str:
+        """Return the status topic for a device."""
+        return f"root/codermine/devices/{device_id}/status"

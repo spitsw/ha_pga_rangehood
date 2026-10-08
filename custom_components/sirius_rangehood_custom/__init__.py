@@ -73,33 +73,21 @@ async def async_setup_entry(
     # Coordinator owns the authoritative state and the getStatus heartbeat.
     coordinator = SiriusRangehoodCoordinator(hass, entry, hub, device_states)
 
-    # MQTT status callback: called from paho-mqtt background thread.
-    # All device_states access happens on the HA event loop to avoid concurrent
-    # reads/writes from both the paho thread and the coordinator.
-    def _on_mqtt_status(device_id: str, payload: dict[str, Any]) -> None:
-        """Forward MQTT update to the HA event loop for thread-safe processing."""
-        hass.loop.call_soon_threadsafe(
-            coordinator.apply_mqtt_update, device_id, payload
-        )
-
-    def _on_mqtt_connection(connected: bool) -> None:  # noqa: FBT001
-        """Forward broker connectivity changes to the HA event loop."""
-        hass.loop.call_soon_threadsafe(coordinator.set_mqtt_connected, connected)
-
-    # Start MQTT
+    # MQTT: aiomqtt drives the socket on the HA event loop, so its callbacks
+    # fire on the loop directly — no background thread or thread bridge.
     mqtt = SiriusMQTT(
         hass,
         mqtts_endpoint,
         username,
         password,
-        _on_mqtt_status,
-        connection_callback=_on_mqtt_connection,
+        coordinator.apply_mqtt_update,
+        connection_callback=coordinator.set_mqtt_connected,
+        identifier=entry.entry_id,
     )
+    for device in devices:
+        mqtt.subscribe_device(device_key(device))
     mqtt_connected = await mqtt.async_start()
     coordinator.set_mqtt_connected(mqtt_connected)
-    if mqtt_connected:
-        for device in devices:
-            mqtt.subscribe_device(device_key(device))
 
     try:
         # Initial refresh sends getStatus to bootstrap live state via MQTT

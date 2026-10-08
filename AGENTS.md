@@ -104,18 +104,19 @@ load-bearing points:
   POSTs `setValue`; the device then pushes a `/status` message that updates
   state. Entities do not read the HTTP response for state.
 - **MQTT connectivity is surfaced.** The coordinator tracks `mqtt_connected`
-  (updated thread-safely from the paho callbacks; see below).
+  (set from the aiomqtt task on the event loop; see below).
   `SiriusEntity.available` reflects it with a 30 s grace, and a
   `mqtt_unavailable` Repairs issue is raised when an outage outlasts the grace.
 - **The HTTP `getStatus` heartbeat is a functional no-op.** The coordinator's
   `update_method` fires every 300 s purely so a periodic update exists (keeps
   `last_update_success` true and the MQTT stream primed). It never returns
   state. Do not "optimize" it into the state source.
-- **Thread safety (ADR-2):** paho-mqtt invokes `_on_message` / `_on_connect`
-  / `_on_disconnect` on a background thread. `_on_mqtt_status` and
-  `_on_mqtt_connection` must **only** schedule work via
-  `hass.loop.call_soon_threadsafe(coordinator.apply_mqtt_update | .set_mqtt_connected, ...)`.
-  Never touch `coordinator.data` / `device_states` from the paho thread.
+- **MQTT runs on the event loop (ADR-2):** the client uses `aiomqtt`, which
+drives paho-mqtt's socket on the HA loop (no background thread). A single
+background task (`entry.async_create_background_task`) connects, (re)subscribes,
+and consumes `client.messages`, calling `coordinator.apply_mqtt_update` /
+`set_mqtt_connected` **directly** — there is no `call_soon_threadsafe` bridge.
+Reconnection is the task's own exponential-backoff loop (ADR-10).
 - **Device discovery is setup-time only (ADR-7).** `/devices/` is fetched once
   in `async_setup_entry`. New devices require the user to run **Configure**
   (reconfigure) — there is no polling-for-new-devices path.
@@ -178,7 +179,7 @@ and constructs entities from `(coordinator, did, device, entry)`.
   for the Sirius broker because its certificate is expired (ADR-1). `insecure_tls`
   from the config flow controls the equivalent for the HTTP client.
 - The MQTT broker is an external, single-purpose connection managed directly
-  with `paho-mqtt` (declared in `manifest.json`), **not** HA's global `mqtt`
+  with `aiomqtt` (declared in `manifest.json`), **not** HA's global `mqtt`
   integration — do not move it there (ADR-1).
 - Do not edit `.storage` or `__pycache__`; `*.pyc`/`__pycache__/` are ignored
   and not tracked.
@@ -190,7 +191,7 @@ and constructs entities from `(coordinator, did, device, entry)`.
   `pytest-homeassistant-custom-component` (declared in `requirements_dev.txt`);
   `pytest.ini` sets `asyncio_mode = auto` and `pythonpath = .`.
 - Coverage: `test_hub.py` (`_flatten_device`, token restore), `test_mqtt.py`
-  (payload parsing, topic extraction, connection callbacks), `test_const.py`
+  (payload parsing, topic extraction, subscription tracking), `test_const.py`
   (speed/percentage mapping, manifest consistency), `test_config_flow.py`
   (`_validate_urls` plus the user -> menu -> finish flow), `test_coordinator.py`
   (`apply_mqtt_update`, MQTT availability/grace), `test_init.py`
