@@ -13,6 +13,9 @@ from homeassistant.components.light import (
 )
 
 from .api import (
+    CAP_LIGHT2_BRIGHTNESS,
+    CAP_LIGHT2_COLOR_TEMP,
+    CAP_LIGHT2_ONOFF,
     CAP_LIGHT_BRIGHTNESS,
     CAP_LIGHT_COLOR_TEMP,
     CAP_LIGHT_ONOFF,
@@ -37,7 +40,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the light platform."""
-    entities = [SiriusRangehoodLight(c, did, d) for c, did, d in iter_devices(entry)]
+    entities = []
+    for coordinator, device_id, device in iter_devices(entry):
+        entities.append(SiriusRangehoodLight(coordinator, device_id, device))
+        if CAP_LIGHT2_ONOFF in device.get("_limits", {}):
+            entities.append(
+                SiriusRangehoodSecondaryLight(coordinator, device_id, device)
+            )
     async_add_entities(entities)
 
 
@@ -49,6 +58,11 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
     _attr_min_color_temp_kelvin = LIGHT_COLOR_TEMP_KELVIN_MIN
     _attr_max_color_temp_kelvin = LIGHT_COLOR_TEMP_KELVIN_MAX
 
+    _cap_onoff = CAP_LIGHT_ONOFF
+    _cap_brightness = CAP_LIGHT_BRIGHTNESS
+    _cap_color_temp = CAP_LIGHT_COLOR_TEMP
+    _unique_suffix = "light"
+
     def __init__(
         self,
         coordinator: SiriusRangehoodCoordinator,
@@ -56,20 +70,22 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
         device: dict[str, Any],
     ) -> None:
         """Initialize the light entity."""
-        super().__init__(coordinator, device_id, device, unique_suffix="light")
+        super().__init__(
+            coordinator, device_id, device, unique_suffix=self._unique_suffix
+        )
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the light is on."""
         state = self._get_device_state()
-        val = state.get(CAP_LIGHT_ONOFF)
+        val = state.get(self._cap_onoff)
         return bool(val) if val is not None else None
 
     @property
     def brightness(self) -> int | None:
         """Return the light brightness on the Home Assistant 0-255 scale."""
         state = self._get_device_state()
-        val = state.get(CAP_LIGHT_BRIGHTNESS)
+        val = state.get(self._cap_brightness)
         if val is not None:
             pct = float(val)
             pct = max(LIGHT_BRIGHTNESS_MIN, min(LIGHT_BRIGHTNESS_MAX, pct))
@@ -83,7 +99,7 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
     def color_temp_kelvin(self) -> int | None:
         """Return the light colour temperature in Kelvin."""
         state = self._get_device_state()
-        val = state.get(CAP_LIGHT_COLOR_TEMP)
+        val = state.get(self._cap_color_temp)
         if val is not None:
             return round(float(val))
         return None
@@ -101,7 +117,7 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
             )
             params.append(
                 {
-                    "id": CAP_LIGHT_BRIGHTNESS,
+                    "id": self._cap_brightness,
                     "value": round(
                         max(LIGHT_BRIGHTNESS_MIN, min(LIGHT_BRIGHTNESS_MAX, pct)), 1
                     ),
@@ -111,14 +127,14 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
             has_attr = True
             params.append(
                 {
-                    "id": CAP_LIGHT_COLOR_TEMP,
+                    "id": self._cap_color_temp,
                     "value": round(float(kwargs[ATTR_COLOR_TEMP_KELVIN])),
                 }
             )
 
         # Only send onOff when no brightness/color_temp is provided
         if not has_attr:
-            params.append({"id": CAP_LIGHT_ONOFF, "value": 1.0})
+            params.append({"id": self._cap_onoff, "value": 1.0})
 
         if not params:
             return
@@ -126,4 +142,15 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # noqa: ARG002
         """Turn the light off."""
-        await self._async_send_command([{"id": CAP_LIGHT_ONOFF, "value": 0.0}])
+        await self._async_send_command([{"id": self._cap_onoff, "value": 0.0}])
+
+
+class SiriusRangehoodSecondaryLight(SiriusRangehoodLight):
+    """Representation of a Sirius Rangehood secondary light."""
+
+    _attr_translation_key = "secondary_light"
+
+    _cap_onoff = CAP_LIGHT2_ONOFF
+    _cap_brightness = CAP_LIGHT2_BRIGHTNESS
+    _cap_color_temp = CAP_LIGHT2_COLOR_TEMP
+    _unique_suffix = "light2"

@@ -21,13 +21,16 @@ choose **Configure custom endpoints** after logging in.
 |---------|-------------|
 | **Fan** | 5 speeds (off / low / med / high / boost) |
 | **Light** | Brightness and colour temperature (warm → cool) |
+| **Secondary Light** | Second light's brightness and colour temperature (if supported) |
 | **Timer Duration** | Set countdown in seconds |
 | **Timer Active** | Start / stop the countdown |
 | **Global Power** | Turn fan and light on/off together |
 | **Bi-Power** | Enable extra airflow and powerful extraction (if supported) |
 
 **Sensors** show IP address, WiFi signal strength, firmware version,
-filter life, filter worn alert, and estimated turn-off time.
+filter life, filter worn alert, and estimated turn-off time. Models with a
+second filter also expose its life and worn alert, and power draw (Watts)
+is reported for the lights, fan, and hood where the device measures it.
 
 Live values are pushed from the Sirius cloud over MQTT. If that connection
 drops, entities become **Unavailable** after about 30 seconds and a

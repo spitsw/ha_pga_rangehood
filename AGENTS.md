@@ -134,11 +134,11 @@ and constructs entities from `(coordinator, did, device, entry)`.
 | File | Entities |
 |------|----------|
 | `fan.py` | `SiriusRangehoodFan` — speeds 0-4, mapped to 0/25/50/75/100 % |
-| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp |
+| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp; `SiriusRangehoodSecondaryLight` for `device.light2*` (only if `light2OnOff` present) |
 | `switch.py` | Power, Bi-Power (only if capability present), Timer active |
 | `number.py` | Timer duration (min/max from `device["_limits"]`) |
-| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time |
-| `binary_sensor.py` | Filter worn |
+| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time; `SiriusRangehoodSecondaryFilterCountdown` for `device.filter2Value` (only if present) + power-draw sensors for `device.lightPower`/`device.light2Power`/`device.fanPower`/`device.hoodPower` (only if present) |
+| `binary_sensor.py` | Filter worn; `SiriusRangehoodSecondaryFilterWorn` for `device.filter2.worn` (only if present) |
 
 ## Conventions
 

@@ -33,6 +33,15 @@ CAP_BI_POWER_ENABLED = "device.biPowerEnabled"
 CAP_LIGHT_BRIGHTNESS = "device.lightBrightness"
 CAP_TIMER_MODIFIABLE = "device.timer.modifiable"
 CAP_LIGHT_COLOR_TEMP = "device.lightColorTemperature"
+CAP_LIGHT_POWER = "device.lightPower"
+CAP_FILTER2_WORN = "device.filter2.worn"
+CAP_FILTER2_VALUE = "device.filter2Value"
+CAP_LIGHT2_ONOFF = "device.light2OnOff"
+CAP_LIGHT2_BRIGHTNESS = "device.light2Brightness"
+CAP_LIGHT2_COLOR_TEMP = "device.light2ColorTemperature"
+CAP_LIGHT2_POWER = "device.light2Power"
+CAP_FAN_POWER = "device.fanPower"
+CAP_HOOD_POWER = "device.hoodPower"
 
 # Fan speed: API uses 0-4 (off, low, med, high, boost)
 FAN_SPEED_OFF = 0

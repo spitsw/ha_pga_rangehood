@@ -14,7 +14,12 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory
 
 from .api import (
+    CAP_FAN_POWER,
+    CAP_FILTER2_VALUE,
     CAP_FILTER_VALUE,
+    CAP_HOOD_POWER,
+    CAP_LIGHT2_POWER,
+    CAP_LIGHT_POWER,
     CAP_TIMER_ACTIVE,
     CAP_TIMER_ENABLE,
     CAP_TIMER_VALUE,
@@ -63,6 +68,39 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = tuple(
     for key, translation_key, icon, device_class, unit in _DIAGNOSTIC_SENSORS
 )
 
+# Read-only power-draw capabilities, created only when a device exposes them.
+_POWER_SENSORS: tuple[
+    tuple[str, str, str, SensorDeviceClass | None, str | None], ...
+] = (
+    (
+        CAP_LIGHT_POWER,
+        "light_power",
+        "mdi:lightbulb-outline",
+        SensorDeviceClass.POWER,
+        "W",
+    ),
+    (
+        CAP_LIGHT2_POWER,
+        "light2_power",
+        "mdi:lightbulb-outline",
+        SensorDeviceClass.POWER,
+        "W",
+    ),
+    (CAP_FAN_POWER, "fan_power", "mdi:fan", SensorDeviceClass.POWER, "W"),
+    (CAP_HOOD_POWER, "hood_power", "mdi:counter", SensorDeviceClass.POWER, "W"),
+)
+
+POWER_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = tuple(
+    SensorEntityDescription(
+        key=key,
+        translation_key=translation_key,
+        icon=icon,
+        device_class=device_class,
+        native_unit_of_measurement=unit,
+    )
+    for key, translation_key, icon, device_class, unit in _POWER_SENSORS
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
@@ -77,6 +115,15 @@ async def async_setup_entry(
             for desc in SENSOR_DESCRIPTIONS
         )
         entities.append(SiriusRangehoodFilterCountdown(coordinator, did, device))
+        if CAP_FILTER2_VALUE in device.get("_limits", {}):
+            entities.append(
+                SiriusRangehoodSecondaryFilterCountdown(coordinator, did, device)
+            )
+        entities.extend(
+            SiriusRangehoodSensor(coordinator, did, device, desc)
+            for desc in POWER_SENSOR_DESCRIPTIONS
+            if desc.key in device.get("_limits", {})
+        )
         if CAP_TIMER_ENABLE in device.get("_limits", {}):
             entities.append(SiriusRangehoodTimerOffTime(coordinator, did, device))
     async_add_entities(entities)
@@ -109,6 +156,9 @@ class SiriusRangehoodFilterCountdown(SiriusEntity, SensorEntity):
     _attr_native_unit_of_measurement = "h"
     _attr_icon = "mdi:air-filter"
 
+    _cap_filter_value = CAP_FILTER_VALUE
+    _unique_suffix = CAP_FILTER_VALUE
+
     def __init__(
         self,
         coordinator: SiriusRangehoodCoordinator,
@@ -116,16 +166,27 @@ class SiriusRangehoodFilterCountdown(SiriusEntity, SensorEntity):
         device: dict[str, Any],
     ) -> None:
         """Initialize the filter countdown sensor."""
-        super().__init__(coordinator, device_id, device, unique_suffix=CAP_FILTER_VALUE)
+        super().__init__(
+            coordinator, device_id, device, unique_suffix=self._unique_suffix
+        )
 
     @property
     def native_value(self) -> float | None:
         """Return the remaining filter life in hours."""
         state = self._get_device_state()
-        val = state.get(CAP_FILTER_VALUE)
+        val = state.get(self._cap_filter_value)
         if val is not None:
             return round(float(val) / 3600, 1)
         return None
+
+
+class SiriusRangehoodSecondaryFilterCountdown(SiriusRangehoodFilterCountdown):
+    """Secondary filter clean countdown displayed in hours."""
+
+    _attr_translation_key = "secondary_filter_clean_countdown"
+
+    _cap_filter_value = CAP_FILTER2_VALUE
+    _unique_suffix = CAP_FILTER2_VALUE
 
 
 class SiriusRangehoodTimerOffTime(SiriusEntity, SensorEntity):

@@ -48,6 +48,14 @@
     "binary_sensor": {
       "filter_worn": {
         "name": "Filter Worn"
+      },
+      "secondary_filter_worn": {
+        "name": "Secondary Filter Worn"
+      }
+    },
+    "light": {
+      "secondary_light": {
+        "name": "Secondary Light"
       }
     },
     "number": {
@@ -58,6 +66,21 @@
     "sensor": {
       "filter_clean_countdown": {
         "name": "Filter Clean Countdown"
+      },
+      "secondary_filter_clean_countdown": {
+        "name": "Secondary Filter Clean Countdown"
+      },
+      "light_power": {
+        "name": "Light Power"
+      },
+      "light2_power": {
+        "name": "Secondary Light Power"
+      },
+      "fan_power": {
+        "name": "Fan Power"
+      },
+      "hood_power": {
+        "name": "Hood Power"
       },
       "timer_off_time": {
         "name": "Turn-off Time"
