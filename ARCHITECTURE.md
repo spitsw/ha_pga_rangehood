@@ -110,22 +110,30 @@ live status updates. Commands (`setValue`) can only be sent via HTTP.
 - **Commands** → HTTPS POST to `/devices/{id}/set_value`. The device
   processes the command and publishes its new state via MQTT.
 - **Live state** → MQTT subscription to
-  `root/codermine/devices/{id}/status` and `response/#`.
+  `root/codermine/devices/{id}/status`.
+- **Command acknowledgement** → MQTT subscription to
+  `root/codermine/devices/{id}/response/#`. Success is HTTP 200 **and**
+  a `status: 0` acknowledgement; a missing acknowledgement is
+  inconclusive, not a failure (see ADR-11).
 - **Periodic heartbeat** → HTTP `getStatus` (via the coordinator) keeps
   the MQTT data stream alive.
 
 ```
 User action → FanEntity.async_turn_on()
-                → hub.async_send_command()
-                    → HTTP POST /set_value {command: "setValue", ...}
-Device responds → MQTT status topic
-                    → aiomqtt message loop → coordinator
-                        → FanEntity updated via CoordinatorEntity
+                → coordinator.async_send_command()
+                    → hub.async_send_command() → HTTP POST /set_value
+                → mqtt.wait_for_response(requestId)
+Device acks → MQTT response topic → resolves the waiter (logs status + elapsed)
+Device state → MQTT status topic
+                → aiomqtt message loop → coordinator
+                    → FanEntity updated via CoordinatorEntity
 ```
 
 **Consequences**:
 - Commands are synchronous (HTTP request/response) but state updates are
   asynchronous (MQTT push).
+- Command success is confirmed by the MQTT acknowledgement, which is
+  awaited with a bounded timeout so a slow device never blocks the UI.
 - Entities optimistically update locally after sending a command, then
   converge when the MQTT status arrives.
 
@@ -302,9 +310,9 @@ while True:
 
 ---
 
-## ADR-11: MQTT subscriptions — status only, no response topics
+## ADR-11: MQTT subscriptions — status and response topics
 
-**Status**: Accepted
+**Status**: Accepted (supersedes the earlier "status only" decision)
 
 **Context**: The Sirius MQTT broker publishes two message types per device:
 
@@ -312,19 +320,30 @@ while True:
   whenever a value changes. Payload contains a flat `values` array with
   `{id, value}` pairs that directly map to device capabilities.
 
-- `.../devices/{id}/response/{uuid}` — simple acknowledgements returned
-  after a `setValue` command is processed. Payload contains only a
-  timestamp and a status field (e.g. `{"timestamp": ..., "status": "OK"}`).
-  No state data.
+- `.../devices/{id}/response/{requestId}` — an acknowledgement, published
+  after the device has processed a command. The `{requestId}` matches the
+  `requestId` the client sent in the HTTP command, so a response can be
+  correlated with the request that triggered it. Payload is
+  `{"timestamp": ..., "status": 0}`; `status: 0` means success and a
+  non-zero status means the device rejected the command.
 
-**Decision**: Only subscribe to `/status`. The `/response/#` topic carries
-no information that the component needs — command success is confirmed by
-the subsequent status update that the device publishes via MQTT after
-processing the command.
+**Decision**: Subscribe to `/status` **and** `/response/#` per device. The
+HTTP 200 remains the primary gate for "the command was accepted", but the
+response topic lets the integration confirm the device actually processed
+it and surface failures. `SiriusMQTT` keeps pending `requestId`s (one
+`asyncio.Future` each) and resolves the matching waiter when the response
+arrives.
+
+Acknowledgements are advisory, never blocking:
+- a non-zero `status` is logged as a warning;
+- if no acknowledgement arrives within `RESPONSE_TIMEOUT` (5 s) the result
+  is **inconclusive**, not a failure — the device may simply be slow — and
+  is logged at debug with the elapsed time.
 
 **Consequences**:
-- Half the subscriptions (one topic per device instead of two).
-- No wasted messages, no payload parsing for acks.
-- The HTTP `set_value` call may still fail with a dropped connection
-  (see ADR-9), but the command is still processed and the status update
-  arrives via MQTT.
+- Command outcome is observable (delivered + processed vs delivered only).
+- The response payload and elapsed time are logged at debug, which also
+  helps diagnose slow or misbehaving devices.
+- A response with no waiter (e.g. a stale or foreign `requestId`) is
+  ignored at debug.
+- Two subscriptions per device instead of one.

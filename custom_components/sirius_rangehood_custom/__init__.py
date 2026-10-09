@@ -84,6 +84,7 @@ async def async_setup_entry(
         connection_callback=coordinator.set_mqtt_connected,
         identifier=entry.entry_id,
     )
+    coordinator.attach_mqtt(mqtt)
     for device in devices:
         mqtt.subscribe_device(device_key(device))
     mqtt_connected = await mqtt.async_start()

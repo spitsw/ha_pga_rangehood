@@ -12,6 +12,7 @@ import custom_components.sirius_rangehood_custom as sirius
 from custom_components.sirius_rangehood_custom.api import (
     DEFAULT_SIRIUS_ENDPOINT,
     DEFAULT_SIRIUS_MQTTS_ENDPOINT,
+    CommandResult,
 )
 from custom_components.sirius_rangehood_custom.const import (
     CONF_INSECURE_TLS,
@@ -54,8 +55,8 @@ class _FakeHub:
     async def async_get_status(self, _device_id: str) -> bool:
         return True
 
-    async def async_send_command(self, _device_id: str, _params: Any) -> bool:
-        return True
+    async def async_send_command(self, _device_id: str, _params: Any) -> CommandResult:
+        return CommandResult(accepted=True, request_id="test")
 
 
 class _FakeMQTT:

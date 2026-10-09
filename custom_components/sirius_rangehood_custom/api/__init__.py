@@ -46,8 +46,8 @@ from .const import (
     PROP_SSID,
     SPEED_TO_PERCENTAGE,
 )
-from .hub import SiriusAuthError, SiriusHub
-from .mqtt import SiriusMQTT
+from .hub import CommandResult, SiriusAuthError, SiriusHub
+from .mqtt import RESPONSE_TIMEOUT, SiriusMQTT
 
 __all__ = [
     "CAP_BI_POWER_ENABLED",
@@ -87,7 +87,9 @@ __all__ = [
     "PROP_RSSI",
     "PROP_SECURE_ID",
     "PROP_SSID",
+    "RESPONSE_TIMEOUT",
     "SPEED_TO_PERCENTAGE",
+    "CommandResult",
     "SiriusAuthError",
     "SiriusHub",
     "SiriusMQTT",

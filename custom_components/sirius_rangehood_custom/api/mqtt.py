@@ -29,6 +29,10 @@ _RECONNECT_MIN_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 120.0
 _CONNECT_TIMEOUT = 10.0
 
+# Seconds to wait for a command acknowledgement on the response topic. A
+# timeout is inconclusive, not a failure: the device may simply be slow.
+RESPONSE_TIMEOUT = 5.0
+
 
 def _build_tls_context() -> ssl.SSLContext:
     """
@@ -85,6 +89,7 @@ class SiriusMQTT:
         self._tls_context: ssl.SSLContext | None = None
 
         self._subscribed_devices: set[str] = set()
+        self._pending_responses: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._task: asyncio.Task[None] | None = None
         self._connected = False
         self._connected_event: asyncio.Event | None = None
@@ -157,7 +162,10 @@ class SiriusMQTT:
                     delay = _RECONNECT_MIN_DELAY
                     for device_id in self._subscribed_devices:
                         await client.subscribe(self._status_topic(device_id), qos=1)
-                        _LOGGER.debug("Subscribed to MQTT status for %s", device_id)
+                        await client.subscribe(self._response_topic(device_id), qos=1)
+                        _LOGGER.debug(
+                            "Subscribed to MQTT status and response for %s", device_id
+                        )
                     async for message in client.messages:
                         self._handle_message(message)
             except aiomqtt.MqttError as err:
@@ -182,7 +190,7 @@ class SiriusMQTT:
             self._connection_callback(connected)
 
     def _handle_message(self, message: aiomqtt.Message) -> None:
-        """Parse a status message and forward its flattened values."""
+        """Route a message: responses resolve waiters, status updates forward."""
         topic = message.topic.value
         try:
             raw = json.loads(message.payload.decode("utf-8"))
@@ -191,6 +199,11 @@ class SiriusMQTT:
             return
 
         payload = raw if isinstance(raw, dict) else {}
+
+        if "/response/" in topic:
+            self._handle_response(topic, payload)
+            return
+
         values_list = payload.pop("values", [])
 
         # The device ID is always the path segment after "devices" in the
@@ -213,7 +226,49 @@ class SiriusMQTT:
         if self._status_callback:
             self._status_callback(device_id, flat)
 
+    async def wait_for_response(
+        self,
+        request_id: str,
+        *,
+        timeout: float = RESPONSE_TIMEOUT,  # noqa: ASYNC109
+    ) -> dict[str, Any] | None:
+        """
+        Wait for the broker's acknowledgement of *request_id*.
+
+        Returns the parsed response payload, or None when no acknowledgement
+        arrived within *timeout* seconds. A timeout is inconclusive, not a
+        failure: the device may still be processing the command.
+        """
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[dict[str, Any]] = loop.create_future()
+        self._pending_responses[request_id] = future
+        try:
+            return await asyncio.wait_for(future, timeout)
+        except TimeoutError:
+            return None
+        finally:
+            self._pending_responses.pop(request_id, None)
+
+    def _handle_response(self, topic: str, payload: dict[str, Any]) -> None:
+        """Resolve a pending command waiter from a response-topic message."""
+        request_id = topic.rsplit("/", 1)[1]
+        future = self._pending_responses.pop(request_id, None)
+        if future is None or future.done():
+            _LOGGER.debug(
+                "Unmatched MQTT response on %s (no pending request): %s",
+                topic,
+                payload,
+            )
+            return
+        _LOGGER.debug("MQTT response for request %s: %s", request_id, payload)
+        future.set_result(payload)
+
     @staticmethod
     def _status_topic(device_id: str) -> str:
         """Return the status topic for a device."""
         return f"root/codermine/devices/{device_id}/status"
+
+    @staticmethod
+    def _response_topic(device_id: str) -> str:
+        """Return the command-acknowledgement topic wildcard for a device."""
+        return f"root/codermine/devices/{device_id}/response/#"

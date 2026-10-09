@@ -101,8 +101,14 @@ load-bearing points:
   `_async_update_data`. Entities subclass `CoordinatorEntity` (via
   `SiriusEntity`) and only ever read `coordinator.data.get(device_id)`.
 - **Commands go out over HTTP, state comes in over MQTT.** `hub.async_send_command()`
-  POSTs `setValue`; the device then pushes a `/status` message that updates
-  state. Entities do not read the HTTP response for state.
+  POSTs `setValue` and returns a `CommandResult` (HTTP `accepted` + the
+  generated `requestId`); the device then pushes a `/status` message that
+  updates state. Entities do not read the HTTP response for state. Commands
+  are sent through `coordinator.async_send_command()`, which also awaits the
+  MQTT acknowledgement on `.../response/{requestId}` (see ADR-11): a
+  non-zero `status` is warned about, and a missing ack within
+  `RESPONSE_TIMEOUT` (5 s) is logged at debug as inconclusive — never a
+  failure. The HTTP 200 stays the primary gate.
 - **MQTT connectivity is surfaced.** The coordinator tracks `mqtt_connected`
   (set from the aiomqtt task on the event loop; see below).
   `SiriusEntity.available` reflects it with a 30 s grace, and a
@@ -114,8 +120,10 @@ load-bearing points:
 - **MQTT runs on the event loop (ADR-2):** the client uses `aiomqtt`, which
 drives paho-mqtt's socket on the HA loop (no background thread). A single
 background task (`entry.async_create_background_task`) connects, (re)subscribes,
-and consumes `client.messages`, calling `coordinator.apply_mqtt_update` /
-`set_mqtt_connected` **directly** — there is no `call_soon_threadsafe` bridge.
+and consumes `client.messages`, routing `/status` to
+`coordinator.apply_mqtt_update`, `/response/` to the pending-request waiters,
+and connectivity to `set_mqtt_connected` **directly** — there is no
+`call_soon_threadsafe` bridge.
 Reconnection is the task's own exponential-backoff loop (ADR-10).
 - **Device discovery is setup-time only (ADR-7).** `/devices/` is fetched once
   in `async_setup_entry`. New devices require the user to run **Configure**

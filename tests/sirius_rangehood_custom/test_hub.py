@@ -120,3 +120,52 @@ class TestRestoreToken:
         hub = SiriusHub.__new__(SiriusHub)
         hub.restore_token("tok", "not-a-date")
         assert hub._token_expiry is None
+
+
+class TestCommandResult:
+    """Verify command requests expose the requestId for MQTT correlation."""
+
+    async def test_send_command_returns_request_id(self) -> None:
+        """setValue returns the generated requestId and the accepted flag."""
+        hub = SiriusHub.__new__(SiriusHub)
+        captured: dict[str, object] = {}
+
+        async def fake_post(_device_id, payload):
+            captured["payload"] = payload
+            return True
+
+        hub._post_set_value = fake_post
+        result = await hub.async_send_command("dev-1", [{"id": "x", "value": 1}])
+
+        assert result.accepted is True
+        assert result.request_id
+        assert captured["payload"]["requestId"] == result.request_id
+
+    async def test_send_command_reports_rejection(self) -> None:
+        """A rejected setValue still carries a requestId for bookkeeping."""
+        hub = SiriusHub.__new__(SiriusHub)
+
+        async def fake_post(_device_id, _payload):
+            return False
+
+        hub._post_set_value = fake_post
+        result = await hub.async_send_command("dev-1", [])
+
+        assert result.accepted is False
+        assert result.request_id
+
+    async def test_get_status_returns_accepted(self) -> None:
+        """getStatus returns the HTTP outcome; its ack is not awaited."""
+        hub = SiriusHub.__new__(SiriusHub)
+        captured: dict[str, object] = {}
+
+        async def fake_post(_device_id, payload):
+            captured["payload"] = payload
+            return True
+
+        hub._post_set_value = fake_post
+        result = await hub.async_get_status("dev-1")
+
+        assert result is True
+        assert captured["payload"]["command"] == "getStatus"
+        assert captured["payload"]["requestId"]

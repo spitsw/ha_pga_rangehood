@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -75,6 +76,20 @@ async def _run_with_retry[T](
         msg = "retries must be at least 1"
         raise ValueError(msg)
     raise last_exc
+
+
+@dataclass(frozen=True, slots=True)
+class CommandResult:
+    """
+    Outcome of a Sirius command request.
+
+    *accepted* reflects the HTTP layer only: True when the server answered
+    200 and the command was enqueued. The device's acknowledgement arrives
+    separately on the MQTT response topic, keyed by *request_id*.
+    """
+
+    accepted: bool
+    request_id: str
 
 
 class SiriusHub:
@@ -275,11 +290,12 @@ class SiriusHub:
 
     async def async_send_command(
         self, device_id: str, parameters: list[dict[str, Any]]
-    ) -> bool:
+    ) -> CommandResult:
         """
         Send a setValue command. Device auto-publishes updated status via MQTT.
 
-        Returns True when the request reached the server.
+        Returns the HTTP outcome and the generated requestId so the caller
+        can correlate the MQTT response topic.
         """
         request_id = str(uuid.uuid4())
         _LOGGER.debug(
@@ -294,7 +310,8 @@ class SiriusHub:
             "parameters": parameters,
             "requestId": request_id,
         }
-        return await self._post_set_value(device_id, payload)
+        accepted = await self._post_set_value(device_id, payload)
+        return CommandResult(accepted=accepted, request_id=request_id)
 
     async def _post_set_value(self, device_id: str, payload: dict[str, Any]) -> bool:
         """Low-level POST to /devices/{id}/set_value. True when accepted (HTTP 200)."""

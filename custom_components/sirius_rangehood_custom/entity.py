@@ -86,9 +86,9 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         return self.coordinator.data.get(self._device_id, {})
 
     async def _async_send_command(self, params: list[dict[str, Any]]) -> None:
-        """Send a setValue command via the hub."""
+        """Send a setValue command and await its MQTT acknowledgement."""
         try:
-            accepted = await self.coordinator.hub.async_send_command(
+            accepted = await self.coordinator.async_send_command(
                 self._device_id, params
             )
         except SiriusAuthError:

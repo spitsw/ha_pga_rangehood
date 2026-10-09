@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import ssl
 from types import SimpleNamespace
@@ -65,6 +66,13 @@ class TestSubscribeDevice:
         assert (
             SiriusMQTT._status_topic("device-1")
             == "root/codermine/devices/device-1/status"
+        )
+
+    def test_response_topic(self) -> None:
+        """The response topic is a per-device wildcard."""
+        assert (
+            SiriusMQTT._response_topic("device-1")
+            == "root/codermine/devices/device-1/response/#"
         )
 
 
@@ -175,3 +183,36 @@ class TestTlsContext:
         mqtt = _make_mqtt()
         with pytest.raises(RuntimeError):
             mqtt._new_client()
+
+
+class TestWaitForResponse:
+    """Verify command acknowledgements are correlated by requestId."""
+
+    async def test_response_resolves_waiter(self) -> None:
+        """A matching response topic resolves the pending waiter."""
+        mqtt = _make_mqtt()
+        task = asyncio.create_task(mqtt.wait_for_response("rid-1"))
+        await asyncio.sleep(0)  # let the waiter register
+        payload = json.dumps({"timestamp": "2026-09-28T13:43:57", "status": 0})
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/response/rid-1", payload.encode())
+        )
+        assert await task == {"timestamp": "2026-09-28T13:43:57", "status": 0}
+
+    async def test_timeout_is_inconclusive(self) -> None:
+        """No acknowledgement within the timeout returns None and cleans up."""
+        mqtt = _make_mqtt()
+        result = await mqtt.wait_for_response("rid-2", timeout=0.01)
+        assert result is None
+        assert "rid-2" not in mqtt._pending_responses
+
+    def test_unmatched_response_is_ignored(self) -> None:
+        """A response with no pending waiter must not raise."""
+        mqtt = _make_mqtt()
+        mqtt._handle_message(
+            _message(
+                "root/codermine/devices/device-1/response/unknown",
+                b'{"status": 0}',
+            )
+        )
+        assert mqtt._pending_responses == {}

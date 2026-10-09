@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +13,13 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from .api import GET_STATUS_INTERVAL, SiriusAuthError, SiriusHub
+from .api import (
+    GET_STATUS_INTERVAL,
+    RESPONSE_TIMEOUT,
+    SiriusAuthError,
+    SiriusHub,
+    SiriusMQTT,
+)
 from .const import DOMAIN
 
 if TYPE_CHECKING:
@@ -53,6 +60,7 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         )
         self._entry = entry
         self._hub = hub
+        self._mqtt: SiriusMQTT | None = None
         self.device_states = device_states
         self._mqtt_connected = False
         self._mqtt_down_since: datetime | None = None
@@ -63,6 +71,10 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def hub(self) -> SiriusHub:
         """Return the HTTP API client backing this coordinator."""
         return self._hub
+
+    def attach_mqtt(self, mqtt: SiriusMQTT) -> None:
+        """Attach the MQTT client used to confirm command acknowledgements."""
+        self._mqtt = mqtt
 
     @property
     def mqtt_connected(self) -> bool:
@@ -87,8 +99,8 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         """
         Record broker connectivity and refresh consumers.
 
-        Must only be called on the HA event loop; the paho-mqtt thread reaches
-        it via ``hass.loop.call_soon_threadsafe``.
+        aiomqtt runs on the HA event loop, so this is called directly from
+        the MQTT task (see ADR-2).
         """
         if self._grace_unsub is not None:
             self._grace_unsub()
@@ -146,6 +158,57 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         """Return a shallow copy of the device state for listeners."""
         return dict(self.device_states)
 
+    async def async_send_command(
+        self, device_id: str, params: list[dict[str, Any]]
+    ) -> bool:
+        """
+        Send a setValue command and confirm it over the MQTT response topic.
+
+        The HTTP 200 is the primary gate and is returned as *accepted*. When
+        accepted, the command's MQTT acknowledgement is awaited for logging:
+        a non-zero status is warned about, and a missing acknowledgement
+        within the timeout is treated as inconclusive (the device may still
+        apply the command) rather than a failure.
+        """
+        started = time.monotonic()
+        result = await self._hub.async_send_command(device_id, params)
+        if not result.accepted:
+            return False
+        await self._log_command_ack(device_id, result.request_id, started)
+        return True
+
+    async def _log_command_ack(
+        self, device_id: str, request_id: str, started: float
+    ) -> None:
+        """Await the MQTT acknowledgement and log its outcome at debug/warning."""
+        if self._mqtt is None:
+            return
+        response = await self._mqtt.wait_for_response(request_id)
+        elapsed = time.monotonic() - started
+        if response is None:
+            _LOGGER.debug(
+                "No MQTT acknowledgement for %s within %.1fs (inconclusive)",
+                device_id,
+                RESPONSE_TIMEOUT,
+            )
+            return
+        status = response.get("status")
+        if status == 0:
+            _LOGGER.debug(
+                "Command for %s acknowledged in %.2fs: %s",
+                device_id,
+                elapsed,
+                response,
+            )
+        else:
+            _LOGGER.warning(
+                "Command for %s acknowledged with status %s after %.2fs: %s",
+                device_id,
+                status,
+                elapsed,
+                response,
+            )
+
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Heartbeat: send getStatus for all devices in parallel."""
         _LOGGER.debug("Coordinator update for %d device(s)", len(self.device_states))
@@ -170,8 +233,8 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         """
         Merge an MQTT status payload and notify listeners.
 
-        Must only be called on the HA event loop; the paho-mqtt thread reaches
-        it via ``hass.loop.call_soon_threadsafe``.
+        aiomqtt runs on the HA event loop, so this is called directly from
+        the MQTT task (see ADR-2).
         """
         if device_id in self.device_states:
             _LOGGER.debug("MQTT status for device %s: %s", device_id, payload)
