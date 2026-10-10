@@ -142,6 +142,12 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         """Ask Home Assistant to start the re-authentication flow."""
         self._entry.async_start_reauth(self.hass)
 
+    def set_device_name(self, device_id: str, name: str) -> None:
+        """Record a renamed device in the state and refresh listeners."""
+        if device_id in self.device_states:
+            self.device_states[device_id]["name"] = name
+            self.async_set_updated_data(self._snapshot())
+
     def _snapshot(self) -> dict[str, dict[str, Any]]:
         """Return a shallow copy of the device state for listeners."""
         return dict(self.device_states)

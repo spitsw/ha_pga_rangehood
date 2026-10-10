@@ -139,6 +139,7 @@ and constructs entities from `(coordinator, did, device, entry)`.
 | `number.py` | Timer duration (min/max from `device["_limits"]`) |
 | `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time |
 | `binary_sensor.py` | Filter worn |
+| `text.py` | `SiriusRangehoodDeviceName` — device name (CONFIG text); calls the rename API on change |
 
 ## Conventions
 

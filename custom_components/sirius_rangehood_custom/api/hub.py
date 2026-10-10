@@ -14,6 +14,7 @@ import aiohttp
 from .const import (
     API_DEVICES,
     API_LOGIN,
+    API_RENAME,
     API_SET_VALUE,
     API_TIMEOUT,
     PROP_FW_VERSION,
@@ -296,10 +297,24 @@ class SiriusHub:
         }
         return await self._post_set_value(device_id, payload)
 
+    async def async_rename_device(self, device_id: str, name: str) -> bool:
+        """Rename a device on the Sirius server. True when accepted (HTTP 200)."""
+        _LOGGER.debug("Renaming device %s to %r", device_id, name)
+        url = f"{self._sirius_endpoint}{API_RENAME.format(device_id=device_id)}"
+        return await self._post_json(
+            url, {"newName": name}, action=f"rename {device_id}"
+        )
+
     async def _post_set_value(self, device_id: str, payload: dict[str, Any]) -> bool:
         """Low-level POST to /devices/{id}/set_value. True when accepted (HTTP 200)."""
-        token = await self.async_ensure_token()
         url = f"{self._sirius_endpoint}{API_SET_VALUE.format(device_id=device_id)}"
+        return await self._post_json(url, payload, action=f"set_value for {device_id}")
+
+    async def _post_json(
+        self, url: str, payload: dict[str, Any], *, action: str
+    ) -> bool:
+        """POST JSON with auth and retries. True when accepted (HTTP 200)."""
+        token = await self.async_ensure_token()
         headers = _auth_headers(token)
         try:
             async with await _run_with_retry(
@@ -310,28 +325,24 @@ class SiriusHub:
                 if resp.status == _HTTP_UNAUTHORIZED:
                     self._token = None
                     self._token_expiry = None
-                    msg = "JWT rejected by set_value"
+                    msg = f"JWT rejected by {action}"
                     raise SiriusAuthError(msg)  # noqa: TRY301
 
                 if resp.status != _HTTP_OK:
-                    _LOGGER.error(
-                        "set_value failed for device %s (HTTP %d)",
-                        device_id,
-                        resp.status,
-                    )
+                    _LOGGER.error("%s failed (HTTP %d)", action, resp.status)
                     return False
-                _LOGGER.debug("set_value succeeded for device %s", device_id)
+                _LOGGER.debug("%s succeeded", action)
                 return True
         except SiriusAuthError:
             raise
         except TimeoutError:
-            _LOGGER.exception("set_value timed out for %s after retries", device_id)
+            _LOGGER.exception("%s timed out after retries", action)
             return False
         except aiohttp.ClientError:
             _LOGGER.warning(
-                "set_value connection lost for %s after retries "
-                "(command may have been processed; check for MQTT status update)",
-                device_id,
+                "%s connection lost after retries "
+                "(the request may still have been processed)",
+                action,
             )
             return False
 

@@ -25,6 +25,7 @@ choose **Configure custom endpoints** after logging in.
 | **Timer Active** | Start / stop the countdown |
 | **Global Power** | Turn fan and light on/off together |
 | **Bi-Power** | Enable extra airflow and powerful extraction (if supported) |
+| **Device Name** | Rename the rangehood on the Sirius cloud (configuration) |
 
 **Sensors** show IP address, WiFi signal strength, firmware version,
 filter life, filter worn alert, and estimated turn-off time.

@@ -7,6 +7,7 @@ VERSION = "1.1.1"
 API_LOGIN = "/users/login"
 API_DEVICES = "/devices/"
 API_SET_VALUE = "/devices/{device_id}/set_value"
+API_RENAME = "/devices/{device_id}/rename"
 
 # Property IDs (from properties[]) — static configuration data
 PROP_DEVICE_NAME = "property.device_name"

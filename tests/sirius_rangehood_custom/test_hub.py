@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 from custom_components.sirius_rangehood_custom.api.hub import SiriusAuthError, SiriusHub
 
 
@@ -120,3 +122,22 @@ class TestRestoreToken:
         hub = SiriusHub.__new__(SiriusHub)
         hub.restore_token("tok", "not-a-date")
         assert hub._token_expiry is None
+
+
+class TestRenameDevice:
+    """Verify the rename request targets the right endpoint and body."""
+
+    async def test_rename_posts_new_name(self) -> None:
+        """Rename POSTs {"newName": ...} to /devices/{uid}/rename."""
+        hub = SiriusHub.__new__(SiriusHub)
+        hub._sirius_endpoint = "https://sirius.example"
+        hub._post_json = AsyncMock(return_value=True)
+
+        result = await hub.async_rename_device("uid-1", "New Name")
+
+        assert result is True
+        hub._post_json.assert_awaited_once()
+        url, payload = hub._post_json.call_args.args
+        assert url == "https://sirius.example/devices/uid-1/rename"
+        assert payload == {"newName": "New Name"}
+        assert hub._post_json.call_args.kwargs["action"] == "rename uid-1"

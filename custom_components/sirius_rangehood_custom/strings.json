@@ -34,6 +34,11 @@
     }
   },
   "entity": {
+    "text": {
+      "device_name": {
+        "name": "Device Name"
+      }
+    },
     "switch": {
       "bi_power": {
         "name": "Bi-Power"
