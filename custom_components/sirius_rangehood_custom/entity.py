@@ -10,7 +10,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import PROP_DEVICE_NAME, PROP_FW_CODE, PROP_FW_VERSION, SiriusAuthError
-from .const import DOMAIN
+from .const import DOMAIN, PROVIDERS
 from .coordinator import SiriusRangehoodCoordinator
 
 if TYPE_CHECKING:
@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from .data import SiriusRangehoodConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+# Unknown providers (e.g. custom endpoints) fall back to the namesake brand.
+_DEFAULT_MANUFACTURER = "Sirius"
+
+
+def manufacturer_for_provider(provider: str) -> str:
+    """Return the device-registry manufacturer name for a provider."""
+    known = PROVIDERS.get(provider)
+    return known.name if known else _DEFAULT_MANUFACTURER
 
 
 def device_key(device: dict[str, Any]) -> str:
@@ -35,8 +44,10 @@ def iter_devices(
         yield data.coordinator, device_key(device), device
 
 
-def sirius_device_info(device_id: str, device: dict[str, Any]) -> DeviceInfo:
-    """Build a DeviceInfo dict for a Sirius device."""
+def sirius_device_info(
+    device_id: str, device: dict[str, Any], *, manufacturer: str
+) -> DeviceInfo:
+    """Build a DeviceInfo dict for a rangehood device."""
     model = device.get(PROP_DEVICE_NAME) or device.get("description") or "Rangehood"
     fw_version = device.get(PROP_FW_VERSION)
     fw_code = device.get(PROP_FW_CODE)
@@ -48,8 +59,8 @@ def sirius_device_info(device_id: str, device: dict[str, Any]) -> DeviceInfo:
         sw_version = None
     return DeviceInfo(
         identifiers={(DOMAIN, device_id)},
-        name=device.get("name", f"Sirius Rangehood {device_id}"),
-        manufacturer="Sirius",
+        name=device.get("name", f"Rangehood {device_id}"),
+        manufacturer=manufacturer,
         model=model,
         sw_version=sw_version,
     )
@@ -74,7 +85,11 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         super().__init__(coordinator)
         self._device_id = device_id
         self._attr_unique_id = f"{device_id}_{unique_suffix}"
-        self._attr_device_info = sirius_device_info(device_id, device)
+        self._attr_device_info = sirius_device_info(
+            device_id,
+            device,
+            manufacturer=manufacturer_for_provider(coordinator.provider),
+        )
 
     @property
     def available(self) -> bool:

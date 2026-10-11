@@ -5,10 +5,17 @@ Guidance for agents working in this repository.
 ## What this is
 
 A Home Assistant **custom integration** (HACS, `integration_type: device`,
-`iot_class: cloud_push`) for WiFi-enabled Sirius rangehoods. It talks to the
-Sirius cloud over two channels: an HTTPS REST API (auth, device discovery,
-commands) and an MQTTS broker (live state). It is one config entry per Sirius
-account, one HA device per discovered rangehood.
+`iot_class: cloud_push`) for WiFi-enabled **Sirius** and **Pando** rangehoods.
+Both are the same P.G.A. platform, differing only in their cloud endpoints and
+the MQTT topic **tenant**. It talks to the provider cloud over two channels: an
+HTTPS REST API (auth, device discovery, commands) and an MQTTS broker (live
+state). It is one config entry per account, one HA device per discovered
+rangehood.
+
+Providers are chosen in the config flow (Sirius / Pando / custom endpoints);
+the status topic is `root/{tenant}/devices/{uid}/status`, where the tenant is
+`codermine` for Sirius, `pando` for Pando, and user-supplied for custom. The
+REST paths are identical across providers — only host and tenant differ.
 
 The integration is split into two strict layers:
 

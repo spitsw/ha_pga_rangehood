@@ -1,12 +1,12 @@
-# Sirius Rangehood
+# Sirius & Pando Rangehood
 
-Home Assistant integration for WiFi-enabled Sirius rangehoods.
+Home Assistant integration for WiFi-enabled **Sirius** and **Pando** rangehoods.
 
 ## Quick Start
 
 1. **Install** — see [Installation](#installation) below, then restart HA.
 2. **Add** — go to **Settings → Devices & Services → Add Integration** and search for "Sirius Rangehood".
-3. **Log in** — enter your Sirius cloud email and password.
+3. **Log in** — pick **Sirius** or **Pando** and enter your cloud email and password.
 
 That's it. Your fan controls, light, timer, and sensors appear automatically.
 
@@ -60,12 +60,15 @@ Home Assistant `custom_components/` directory and restart.
 
 1. **Settings → Devices & Services → Add Integration**.
 2. Search for `Sirius Rangehood` and select it.
-3. Choose an option:
-   - **Log in to the Sirius cloud** (recommended) — uses the default server.
-   - **Configure custom endpoints (advanced)** — only for a non-standard
-     server, or to disable TLS certificate verification.
-4. Enter your **Sirius cloud email** and **password**. If you chose custom
-   endpoints, your credentials are validated against them.
+3. Choose a provider:
+   - **Log in to Sirius** (recommended) — uses the Sirius cloud.
+   - **Log in to Pando** — uses the Pando cloud.
+   - **Configure custom endpoints (advanced)** — for a non-standard server, or
+     to disable TLS certificate verification. Custom setup also asks for the
+     **MQTT topic tenant** (the path segment after `root/` in the broker topics,
+     e.g. `codermine` for Sirius, `pando` for Pando).
+4. Enter your cloud **email** and **password**. If you chose custom endpoints,
+   your credentials are validated against them.
 
 ### Re-configuration
 

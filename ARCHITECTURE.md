@@ -328,3 +328,33 @@ processing the command.
 - The HTTP `set_value` call may still fail with a dropped connection
   (see ADR-9), but the command is still processed and the status update
   arrives via MQTT.
+
+---
+
+## ADR-12: Provider selection (Sirius / Pando / custom)
+
+**Status**: Accepted
+
+**Context**: Sirius and Pando rangehoods run on the same P.G.A. platform. They
+share the REST API shape (`/users/login`, `/devices/`, `/devices/{uid}/set_value`,
+`/devices/{uid}/rename`) but differ in two things: the cloud endpoints (HTTPS +
+MQTTS host/port) and the **tenant** segment of the MQTT topics
+(`root/{tenant}/devices/{uid}/...`).
+
+**Decision**: The config flow asks the user to pick a **provider**:
+
+- **Sirius** — `https://sirius.iotpga.it`, `mqtts://sirius.iotpga.it:8884`,
+  tenant `codermine`.
+- **Pando** — `https://pando.iotpga.it`, `mqtts://pando.iotpga.it:8883`,
+  tenant `pando`.
+- **Custom** — the user supplies the HTTPS/MQTTS URLs and the tenant (advanced,
+  e.g. a non-standard server or disabling TLS verification).
+
+The resolved endpoints and tenant are stored on the config entry, so there is
+no provider branching at setup: the tenant is simply passed to `SiriusMQTT`
+and used to build topic subscriptions.
+
+**Consequences**:
+- One integration serves both brands; the REST layer is unchanged.
+- Existing entries (with no stored provider) default to Sirius (`codermine`).
+- Adding a brand is a data change (a new registry entry) plus a menu option.

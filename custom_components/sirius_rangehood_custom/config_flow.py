@@ -11,17 +11,19 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import (
-    DEFAULT_SIRIUS_ENDPOINT,
-    DEFAULT_SIRIUS_MQTTS_ENDPOINT,
-    SiriusAuthError,
-    SiriusHub,
-)
+from .api import SiriusAuthError, SiriusHub
 from .const import (
     CONF_INSECURE_TLS,
+    CONF_MQTT_TENANT,
+    CONF_PROVIDER,
     CONF_SIRIUS_ENDPOINT,
     CONF_SIRIUS_MQTTS_ENDPOINT,
+    DEFAULT_PROVIDER,
     DOMAIN,
+    PROVIDER_CUSTOM,
+    PROVIDER_PANDO,
+    PROVIDER_SIRIUS,
+    PROVIDERS,
 )
 
 if TYPE_CHECKING:
@@ -30,12 +32,15 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Endpoints and tenant pre-filled in the custom-endpoint form, from the
+# fallback provider. Built-in providers live in `const.PROVIDERS`.
+_FALLBACK = PROVIDERS[DEFAULT_PROVIDER]
+
 STEP_ENDPOINTS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_SIRIUS_ENDPOINT, default=DEFAULT_SIRIUS_ENDPOINT): str,
-        vol.Required(
-            CONF_SIRIUS_MQTTS_ENDPOINT, default=DEFAULT_SIRIUS_MQTTS_ENDPOINT
-        ): str,
+        vol.Required(CONF_SIRIUS_ENDPOINT, default=_FALLBACK.endpoint): str,
+        vol.Required(CONF_SIRIUS_MQTTS_ENDPOINT, default=_FALLBACK.mqtts_endpoint): str,
+        vol.Required(CONF_MQTT_TENANT, default=_FALLBACK.tenant): str,
         vol.Optional(CONF_INSECURE_TLS, default=False): bool,
     }
 )
@@ -50,12 +55,19 @@ def _validate_urls(sirius_endpoint: str, mqtts_endpoint: str) -> str | None:
     return None
 
 
+def _validate_tenant(tenant: str) -> str | None:
+    """Return an error key if the MQTT tenant is not a single path segment."""
+    if not tenant.strip() or "/" in tenant:
+        return "invalid_tenant"
+    return None
+
+
 async def _try_discover_devices(
     hass: HomeAssistant,
     user_input: dict[str, Any],
     errors: dict[str, str],
     *,
-    sirius_endpoint: str = DEFAULT_SIRIUS_ENDPOINT,
+    sirius_endpoint: str = _FALLBACK.endpoint,
     insecure_tls: bool = False,
 ) -> list[dict[str, Any]] | None:
     """Validate credentials against an endpoint and discover devices."""
@@ -77,10 +89,10 @@ async def _try_discover_devices(
         return None
     else:
         if not devices:
-            _LOGGER.warning("Sirius login succeeded but no devices found")
+            _LOGGER.warning("Cloud login succeeded but no devices found")
             errors["base"] = "no_devices"
             return None
-        _LOGGER.info("Sirius authenticated, %d device(s) discovered", len(devices))
+        _LOGGER.info("Cloud authenticated, %d device(s) discovered", len(devices))
         return devices
 
 
@@ -108,26 +120,65 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: entry.data.get(CONF_PASSWORD, ""),
         }
         self._apply_config(
-            entry.data.get(CONF_SIRIUS_ENDPOINT, DEFAULT_SIRIUS_ENDPOINT),
-            entry.data.get(CONF_SIRIUS_MQTTS_ENDPOINT, DEFAULT_SIRIUS_MQTTS_ENDPOINT),
+            entry.data.get(CONF_PROVIDER, DEFAULT_PROVIDER),
+            entry.data.get(CONF_SIRIUS_ENDPOINT, _FALLBACK.endpoint),
+            entry.data.get(CONF_SIRIUS_MQTTS_ENDPOINT, _FALLBACK.mqtts_endpoint),
+            entry.data.get(CONF_MQTT_TENANT, _FALLBACK.tenant),
             insecure_tls=entry.data.get(CONF_INSECURE_TLS, False),
         )
 
     def _apply_config(
-        self, endpoint: str, mqtts_endpoint: str, *, insecure_tls: bool
+        self,
+        provider: str,
+        endpoint: str,
+        mqtts_endpoint: str,
+        tenant: str,
+        *,
+        insecure_tls: bool,
     ) -> None:
         """Set the endpoint configuration used for login validation and saving."""
         self._config = {
+            CONF_PROVIDER: provider,
             CONF_SIRIUS_ENDPOINT: endpoint,
             CONF_SIRIUS_MQTTS_ENDPOINT: mqtts_endpoint,
+            CONF_MQTT_TENANT: tenant,
             CONF_INSECURE_TLS: insecure_tls,
         }
+
+    def _set_provider(self, provider: str) -> None:
+        """Apply a built-in provider's endpoints and tenant."""
+        preset = PROVIDERS[provider]
+        self._apply_config(
+            provider,
+            preset.endpoint,
+            preset.mqtts_endpoint,
+            preset.tenant,
+            insecure_tls=False,
+        )
+
+    def _provider_label(self) -> str:
+        """Return the display name of the configured provider."""
+        preset = PROVIDERS.get(self._config.get(CONF_PROVIDER, DEFAULT_PROVIDER))
+        return preset.name if preset else "Custom"
+
+    async def _async_discover(
+        self, user_input: dict[str, Any], errors: dict[str, str]
+    ) -> list[dict[str, Any]] | None:
+        """Validate credentials against the configured endpoint."""
+        return await _try_discover_devices(
+            self.hass,
+            user_input,
+            errors,
+            sirius_endpoint=self._config[CONF_SIRIUS_ENDPOINT],
+            insecure_tls=self._config[CONF_INSECURE_TLS],
+        )
 
     def _async_save_entry(self) -> ConfigFlowResult:
         """Create a new entry, or update the existing one, with current settings."""
         data = {**self._user_input, **self._config}
+        label = self._provider_label()
         title = (
-            f"Sirius Rangehood ({len(self._devices)} device"
+            f"{label} Rangehood ({len(self._devices)} device"
             f"{'s' if len(self._devices) > 1 else ''})"
         )
         entry = self._existing_entry()
@@ -148,23 +199,37 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
             self._seed_from_entry(entry)
         else:
             self._user_input = {}
-            self._apply_config(
-                DEFAULT_SIRIUS_ENDPOINT,
-                DEFAULT_SIRIUS_MQTTS_ENDPOINT,
-                insecure_tls=False,
-            )
+            self._set_provider(DEFAULT_PROVIDER)
 
         # Reauthentication is credentials-only; endpoints are fixed via Configure.
         if self.source == "reauth":
             return await self.async_step_credentials(user_input)
 
+        login_options = {
+            provider: f"Log in to {preset.name}"
+            for provider, preset in PROVIDERS.items()
+        }
         return self.async_show_menu(
             step_id="user",
             menu_options={
-                "credentials": "Log in to the Sirius cloud",
+                **login_options,
                 "endpoints": "Configure custom endpoints (advanced)",
             },
         )
+
+    async def async_step_sirius(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Log in to the Sirius cloud."""
+        self._set_provider(PROVIDER_SIRIUS)
+        return await self.async_step_credentials(user_input)
+
+    async def async_step_pando(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Log in to the Pando cloud."""
+        self._set_provider(PROVIDER_PANDO)
+        return await self.async_step_credentials(user_input)
 
     async def async_step_reauth(
         self, user_input: dict[str, Any] | None = None
@@ -194,13 +259,7 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
         if user_input is not None:
-            devices = await _try_discover_devices(
-                self.hass,
-                user_input,
-                errors,
-                sirius_endpoint=self._config[CONF_SIRIUS_ENDPOINT],
-                insecure_tls=self._config[CONF_INSECURE_TLS],
-            )
+            devices = await self._async_discover(user_input, errors)
             if devices is not None:
                 self._user_input = user_input
                 self._devices = devices
@@ -214,6 +273,7 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="credentials",
             data_schema=schema,
             errors=errors,
+            description_placeholders={"provider": self._provider_label()},
         )
 
     async def async_step_endpoints(
@@ -223,29 +283,25 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            url_error = _validate_urls(
+            error = _validate_urls(
                 user_input[CONF_SIRIUS_ENDPOINT],
                 user_input[CONF_SIRIUS_MQTTS_ENDPOINT],
-            )
-            if url_error:
-                errors["base"] = url_error
+            ) or _validate_tenant(user_input[CONF_MQTT_TENANT])
+            if error:
+                errors["base"] = error
             else:
                 self._apply_config(
+                    PROVIDER_CUSTOM,
                     user_input[CONF_SIRIUS_ENDPOINT],
                     user_input[CONF_SIRIUS_MQTTS_ENDPOINT],
+                    user_input[CONF_MQTT_TENANT],
                     insecure_tls=user_input.get(CONF_INSECURE_TLS, False),
                 )
                 if self._existing_entry() is not None:
                     # Endpoint-only change: verify best-effort, but never block,
                     # so a bad/unreachable URL can always be corrected.
                     check: dict[str, str] = {}
-                    devices = await _try_discover_devices(
-                        self.hass,
-                        self._user_input,
-                        check,
-                        sirius_endpoint=self._config[CONF_SIRIUS_ENDPOINT],
-                        insecure_tls=self._config[CONF_INSECURE_TLS],
-                    )
+                    devices = await self._async_discover(self._user_input, check)
                     if devices is None:
                         _LOGGER.warning(
                             "Endpoint %s did not validate (%s); saving anyway",

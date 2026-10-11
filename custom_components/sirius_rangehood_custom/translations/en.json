@@ -2,19 +2,20 @@
   "config": {
     "step": {
       "user": {
-        "description": "Log in to the Sirius cloud, or configure custom server endpoints if you use a non-standard server (advanced)."
+        "description": "Log in to Sirius or Pando, or configure custom server endpoints if you use a non-standard server (advanced)."
       },
       "credentials": {
         "data": {
           "username": "Email",
           "password": "Password"
         },
-        "description": "Enter your Sirius rangehood cloud credentials."
+        "description": "Enter your {provider} rangehood cloud credentials."
       },
       "endpoints": {
         "data": {
-          "sirius_endpoint": "Sirius HTTPS Endpoint",
-          "sirius_mqtts_endpoint": "Sirius MQTTS Endpoint",
+          "sirius_endpoint": "HTTPS Endpoint",
+          "sirius_mqtts_endpoint": "MQTTS Endpoint",
+          "mqtt_tenant": "MQTT topic tenant",
           "insecure_tls": "Disable TLS certificate validation"
         },
         "description": "Override the default server endpoints (advanced)."
@@ -25,7 +26,8 @@
       "cannot_connect": "Could not connect to the Sirius server.",
       "no_devices": "No rangehood devices found.",
       "invalid_https_url": "The HTTPS endpoint must start with https://",
-      "invalid_mqtts_url": "The MQTTS endpoint must start with mqtts://"
+      "invalid_mqtts_url": "The MQTTS endpoint must start with mqtts://",
+      "invalid_tenant": "The MQTT tenant must be a single topic segment (no \"/\")."
     },
     "abort": {
       "already_configured": "This account is already configured.",

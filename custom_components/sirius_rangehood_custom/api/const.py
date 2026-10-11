@@ -63,9 +63,16 @@ LIGHT_COLOR_TEMP_KELVIN_MAX = 6000
 # API request timeout
 API_TIMEOUT = 10
 
-# Default server endpoint
+# Default server endpoints per provider (Sirius / Pando)
 DEFAULT_SIRIUS_ENDPOINT = "https://sirius.iotpga.it"
 DEFAULT_SIRIUS_MQTTS_ENDPOINT = "mqtts://sirius.iotpga.it:8884"
+DEFAULT_PANDO_ENDPOINT = "https://pando.iotpga.it"
+DEFAULT_PANDO_MQTTS_ENDPOINT = "mqtts://pando.iotpga.it:8883"
+
+# MQTT topic tenants. The status topic is
+# ``root/{tenant}/devices/{uid}/status`` — the tenant differs per provider.
+SIRIUS_MQTT_TENANT = "codermine"
+PANDO_MQTT_TENANT = "pando"
 
 # Heartbeat interval — sends getStatus to trigger MQTT refresh (seconds)
 GET_STATUS_INTERVAL = 300

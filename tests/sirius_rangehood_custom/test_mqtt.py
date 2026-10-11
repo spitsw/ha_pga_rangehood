@@ -61,11 +61,22 @@ class TestSubscribeDevice:
         assert "device-1" in mqtt._subscribed_devices
 
     def test_status_topic(self) -> None:
-        """The status topic is per-device."""
+        """The status topic is scoped to the tenant (Sirius by default)."""
+        mqtt = _make_mqtt()
         assert (
-            SiriusMQTT._status_topic("device-1")
-            == "root/codermine/devices/device-1/status"
+            mqtt._status_topic("device-1") == "root/codermine/devices/device-1/status"
         )
+
+    def test_status_topic_uses_custom_tenant(self) -> None:
+        """A Pando-style tenant is reflected in the topic."""
+        mqtt = SiriusMQTT(
+            MagicMock(),
+            "mqtts://pando.iotpga.it:8883",
+            "user",
+            "pass",
+            tenant="pando",
+        )
+        assert mqtt._status_topic("device-1") == "root/pando/devices/device-1/status"
 
 
 class TestHandleMessage:

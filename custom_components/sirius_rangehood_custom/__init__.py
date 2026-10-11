@@ -13,9 +13,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
-from .api import SiriusAuthError, SiriusHub, SiriusMQTT
+from .api import SIRIUS_MQTT_TENANT, SiriusAuthError, SiriusHub, SiriusMQTT
 from .const import (
     CONF_INSECURE_TLS,
+    CONF_MQTT_TENANT,
     CONF_SIRIUS_ENDPOINT,
     CONF_SIRIUS_MQTTS_ENDPOINT,
     DOMAIN,
@@ -51,6 +52,7 @@ async def async_setup_entry(
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
     insecure_tls = entry.data.get(CONF_INSECURE_TLS, False)
+    tenant = entry.data.get(CONF_MQTT_TENANT, SIRIUS_MQTT_TENANT)
 
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
     hub = SiriusHub(session, sirius_endpoint, username, password)
@@ -83,6 +85,7 @@ async def async_setup_entry(
         coordinator.apply_mqtt_update,
         connection_callback=coordinator.set_mqtt_connected,
         identifier=entry.entry_id,
+        tenant=tenant,
     )
     for device in devices:
         mqtt.subscribe_device(device_key(device))
@@ -114,7 +117,6 @@ async def async_setup_entry(
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     return True
 
@@ -185,11 +187,3 @@ async def async_unload_entry(
         await data.coordinator.async_shutdown()
 
     return unloaded
-
-
-async def _async_update_listener(
-    hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
-) -> None:
-    """Reconfigure on update."""
-    await hass.config_entries.async_reload(entry.entry_id)

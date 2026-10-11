@@ -13,7 +13,7 @@ from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .api import GET_STATUS_INTERVAL, SiriusAuthError, SiriusHub
-from .const import DOMAIN
+from .const import CONF_PROVIDER, DOMAIN, PROVIDER_SIRIUS
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -63,6 +63,11 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     def hub(self) -> SiriusHub:
         """Return the HTTP API client backing this coordinator."""
         return self._hub
+
+    @property
+    def provider(self) -> str:
+        """Return the configured provider (sirius / pando / custom)."""
+        return self._entry.data.get(CONF_PROVIDER, PROVIDER_SIRIUS)
 
     @property
     def mqtt_connected(self) -> bool:

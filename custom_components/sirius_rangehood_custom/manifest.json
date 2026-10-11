@@ -1,6 +1,6 @@
 {
   "domain": "sirius_rangehood_custom",
-  "name": "Sirius Rangehood",
+  "name": "Sirius & Pando Rangehood",
   "codeowners": ["@spitsw"],
   "config_flow": true,
   "dependencies": [],

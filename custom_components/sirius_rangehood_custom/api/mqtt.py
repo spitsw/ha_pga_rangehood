@@ -14,6 +14,8 @@ from urllib.parse import urlparse
 
 import aiomqtt
 
+from .const import SIRIUS_MQTT_TENANT
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -67,6 +69,7 @@ class SiriusMQTT:
         *,
         connection_callback: ConnectionCallback | None = None,
         identifier: str | None = None,
+        tenant: str = SIRIUS_MQTT_TENANT,
     ) -> None:
         """Parse the broker endpoint and store connection details."""
         self._hass = hass
@@ -75,6 +78,7 @@ class SiriusMQTT:
         self._status_callback = status_callback
         self._connection_callback = connection_callback
         self._identifier = identifier
+        self._tenant = tenant
 
         parsed = urlparse(mqtts_endpoint)
         self._host = parsed.hostname or "localhost"
@@ -194,7 +198,7 @@ class SiriusMQTT:
         values_list = payload.pop("values", [])
 
         # The device ID is always the path segment after "devices" in the
-        # topic (root/codermine/devices/{device_id}/status).
+        # topic (root/{tenant}/devices/{device_id}/status).
         parts = topic.split("/")
         try:
             device_id = parts[parts.index("devices") + 1]
@@ -213,7 +217,6 @@ class SiriusMQTT:
         if self._status_callback:
             self._status_callback(device_id, flat)
 
-    @staticmethod
-    def _status_topic(device_id: str) -> str:
-        """Return the status topic for a device."""
-        return f"root/codermine/devices/{device_id}/status"
+    def _status_topic(self, device_id: str) -> str:
+        """Return the status topic for a device, scoped to the provider tenant."""
+        return f"root/{self._tenant}/devices/{device_id}/status"
