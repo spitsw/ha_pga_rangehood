@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.light import (
+from homeassistant.components.light import LightEntity
+from homeassistant.components.light.const import (
     ATTR_BRIGHTNESS,
     ATTR_COLOR_TEMP_KELVIN,
-    ColorMode,  # pyright: ignore[reportPrivateImportUsage]
-    LightEntity,
+    ColorMode,
 )
 
 from .api import (

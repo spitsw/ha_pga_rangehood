@@ -5,7 +5,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.switch.const import SwitchDeviceClass
 
 from .api import (
     CAP_BI_POWER_ENABLED,
