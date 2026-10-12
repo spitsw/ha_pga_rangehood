@@ -5,7 +5,7 @@ Rangehood integration.
 
 ---
 
-## ADR-1: Direct paho-mqtt over HA's MQTT integration
+## ADR-1: Direct MQTT via aiomqtt over HA's MQTT integration
 
 **Status**: Accepted
 
@@ -20,49 +20,55 @@ disables certificate hostname validation), so the expired certificate
 alone is not a blocker. However, adding a second MQTT broker via the
 global integration is not supported.
 
-**Decision**: Use the `paho-mqtt` library directly, managing the
-connection lifecycle (`connect`/`loop_start`/`loop_stop`) and TLS
-context independently of HA's infrastructure.
+**Decision**: Use the `aiomqtt` library (an async wrapper over
+`paho-mqtt`) directly, managing the connection lifecycle and TLS context
+independently of HA's infrastructure.
 
 **Consequences**:
 - No dependency on HA's global MQTT integration — the component
   works regardless of the user's existing MQTT setup.
-- Full control over TLS configuration: expired certificates, missing
-  root CAs, and the insecure-TLS fallback are all handled internally.
-- Must manage its own connection lifecycle and thread safety via
-  `call_soon_threadsafe`.
+- Full control over TLS configuration: the broker's certificate **chain and
+  hostname are verified** against the system trust store plus a bundled copy
+  of DigiCert's legacy **Global Root CA** (`api/digicert_global_root_ca.pem`)
+  — the broker's chain terminates at that root, which current certifi and some
+  OS trust stores no longer ship. Only its expired leaf is tolerated, via
+  OpenSSL's `X509_V_FLAG_NO_CHECK_TIME` (`0x200000`) — not `CERT_NONE`. This
+  is independent of HA's MQTT settings.
+- `aiomqtt` drives paho-mqtt's socket on the HA event loop (via
+  `add_reader`), so there is no background thread and no callback
+  bridging (see ADR-2).
 - The `/status` topic subscription and `values[]` payload flattening
   are handled directly rather than through HA's MQTT platform
   configuration.
 
 ---
 
-## ADR-2: Thread-safe MQTT callback bridge
+## ADR-2: MQTT callbacks run on the HA event loop (aiomqtt)
 
-**Status**: Accepted
+**Status**: Accepted (supersedes the former paho-thread bridge)
 
-**Context**: paho-mqtt calls `_on_message` from a background thread. Home
-Assistant data structures (`device_states`, `coordinator.data`) must only
-be read or written from the HA event loop. A direct call to
-`async_set_updated_data` from the paho thread would crash.
+**Context**: `paho-mqtt` invokes its callbacks (`on_message`, `on_connect`,
+…) from a background network thread, and HA data structures
+(`device_states`, `coordinator.data`) may only be touched on the HA event
+loop. A thread bridge (`call_soon_threadsafe`) was previously required.
 
-**Decision**: Route all MQTT status updates through
-`hass.loop.call_soon_threadsafe()`. The paho-thread callback
-(`_on_mqtt_status`) schedules `_apply_mqtt_update` on the HA event loop.
-`_apply_mqtt_update` mutates `device_states` and calls
-`coordinator.async_set_updated_data()` — both from the correct context.
+**Decision**: Use `aiomqtt`, which runs paho-mqtt's socket directly on the
+event loop (no background thread). A single background task
+(`entry.async_create_background_task`) connects, (re)subscribes, and
+consumes `client.messages`, invoking the coordinator's
+`apply_mqtt_update` / `set_mqtt_connected` **directly** on the loop.
 
 ```
-paho thread → _on_mqtt_status()
-                → call_soon_threadsafe(_apply_mqtt_update, ...)
-                    → HA event loop → device_states[did].update(payload)
-                        → coordinator.async_set_updated_data(...)
+aiomqtt task (HA event loop)
+  → async for message in client.messages
+      → _handle_message(message) → status_callback(device_id, values)
+          → coordinator.apply_mqtt_update(...)
 ```
 
 **Consequences**:
-- No `RuntimeError: Non-thread-safe operation` or data races.
-- Slight latency between MQTT message receipt and state update (one
-  event-loop iteration), which is negligible for a rangehood.
+- No thread bridge and no `call_soon_threadsafe` for state updates.
+- Reconnection is an explicit loop in the task (ADR-10) driven by
+  `aiomqtt.MqttError`.
 
 ---
 
@@ -109,22 +115,30 @@ live status updates. Commands (`setValue`) can only be sent via HTTP.
 - **Commands** → HTTPS POST to `/devices/{id}/set_value`. The device
   processes the command and publishes its new state via MQTT.
 - **Live state** → MQTT subscription to
-  `root/codermine/devices/{id}/status` and `response/#`.
+  `root/codermine/devices/{id}/status`.
+- **Command acknowledgement** → MQTT subscription to
+  `root/codermine/devices/{id}/response/#`. Success is HTTP 200 **and**
+  a `status: 0` acknowledgement; a missing acknowledgement is
+  inconclusive, not a failure (see ADR-11).
 - **Periodic heartbeat** → HTTP `getStatus` (via the coordinator) keeps
   the MQTT data stream alive.
 
 ```
 User action → FanEntity.async_turn_on()
-                → hub.async_send_command()
-                    → HTTP POST /set_value {command: "setValue", ...}
-Device responds → MQTT status topic
-                    → _on_message → call_soon_threadsafe → coordinator
-                        → FanEntity updated via CoordinatorEntity
+                → coordinator.async_send_command()
+                    → hub.async_send_command() → HTTP POST /set_value
+                → mqtt.wait_for_response(requestId)
+Device acks → MQTT response topic → resolves the waiter (logs status + elapsed)
+Device state → MQTT status topic
+                → aiomqtt message loop → coordinator
+                    → FanEntity updated via CoordinatorEntity
 ```
 
 **Consequences**:
 - Commands are synchronous (HTTP request/response) but state updates are
   asynchronous (MQTT push).
+- Command success is confirmed by the MQTT acknowledgement, which is
+  awaited with a bounded timeout so a slow device never blocks the UI.
 - Entities optimistically update locally after sending a command, then
   converge when the MQTT status arrives.
 
@@ -271,27 +285,39 @@ immediately without retry.
 
 **Status**: Accepted
 
-**Context**: paho-mqtt's default reconnect behaviour after a disconnection
-is a fixed 1-second delay. During a cloud outage this can produce a
-thundering-herd of reconnect attempts against the Sirius broker.
+**Context**: A dropped MQTT connection should be re-established without
+hammering the Sirius broker during a cloud outage. (`paho-mqtt`'s own
+`reconnect_delay_set` is not used — `aiomqtt` surfaces the disconnect as an
+`MqttError` and the reconnect loop is ours, see ADR-2.)
 
-**Decision**: Configure paho-mqtt's built-in `reconnect_delay_set()`
-with `min_delay=1, max_delay=120`. The first reconnect attempt happens
-after 1 second; after each failure the delay doubles up to a 2-minute
-cap. When the broker comes back, the first attempt succeeds at the
-current backoff level.
+**Decision**: The MQTT task reconnects in a loop, doubling the delay from
+**1 s up to a 120 s cap** after each failure (`aiomqtt.MqttError`), and
+re-subscribes to every device topic on each successful reconnect.
+
+```python
+delay = 1
+while True:
+    try:
+        async with client:  # connect
+            subscribe(...)  # (re)subscribe on every connect
+            async for message in client.messages:
+                ...
+    except aiomqtt.MqttError:
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, 120)
+```
 
 **Consequences**:
 - No unnecessary load on the Sirius broker during outages.
-- Reconnection is automatic — no custom reconnect logic needed.
-- The component continues to work via HTTP polling while MQTT is
-  disconnected (coordinator fallback).
+- Reconnection is automatic (within the task) — no external logic needed.
+- The component continues to work via the HTTP `getStatus` heartbeat while
+  MQTT is disconnected (coordinator fallback).
 
 ---
 
-## ADR-11: MQTT subscriptions — status only, no response topics
+## ADR-11: MQTT subscriptions — status and response topics
 
-**Status**: Accepted
+**Status**: Accepted (supersedes the earlier "status only" decision)
 
 **Context**: The Sirius MQTT broker publishes two message types per device:
 
@@ -299,19 +325,60 @@ current backoff level.
   whenever a value changes. Payload contains a flat `values` array with
   `{id, value}` pairs that directly map to device capabilities.
 
-- `.../devices/{id}/response/{uuid}` — simple acknowledgements returned
-  after a `setValue` command is processed. Payload contains only a
-  timestamp and a status field (e.g. `{"timestamp": ..., "status": "OK"}`).
-  No state data.
+- `.../devices/{id}/response/{requestId}` — an acknowledgement, published
+  after the device has processed a command. The `{requestId}` matches the
+  `requestId` the client sent in the HTTP command, so a response can be
+  correlated with the request that triggered it. Payload is
+  `{"timestamp": ..., "status": 0}`; `status: 0` means success and a
+  non-zero status means the device rejected the command.
 
-**Decision**: Only subscribe to `/status`. The `/response/#` topic carries
-no information that the component needs — command success is confirmed by
-the subsequent status update that the device publishes via MQTT after
-processing the command.
+**Decision**: Subscribe to `/status` **and** `/response/#` per device. The
+HTTP 200 remains the primary gate for "the command was accepted", but the
+response topic lets the integration confirm the device actually processed
+it and surface failures. `SiriusMQTT` keeps pending `requestId`s (one
+`asyncio.Future` each) and resolves the matching waiter when the response
+arrives.
+
+Acknowledgements are advisory, never blocking:
+- a non-zero `status` is logged as a warning;
+- if no acknowledgement arrives within `RESPONSE_TIMEOUT` (5 s) the result
+  is **inconclusive**, not a failure — the device may simply be slow — and
+  is logged at debug with the elapsed time.
 
 **Consequences**:
-- Half the subscriptions (one topic per device instead of two).
-- No wasted messages, no payload parsing for acks.
-- The HTTP `set_value` call may still fail with a dropped connection
-  (see ADR-9), but the command is still processed and the status update
-  arrives via MQTT.
+- Command outcome is observable (delivered + processed vs delivered only).
+- The response payload and elapsed time are logged at debug, which also
+  helps diagnose slow or misbehaving devices.
+- A response with no waiter (e.g. a stale or foreign `requestId`) is
+  ignored at debug.
+- Two subscriptions per device instead of one.
+
+---
+
+## ADR-12: Provider selection (Sirius / Pando / custom)
+
+**Status**: Accepted
+
+**Context**: Sirius and Pando rangehoods run on the same P.G.A. platform. They
+share the REST API shape (`/users/login`, `/devices/`, `/devices/{uid}/set_value`,
+`/devices/{uid}/rename`) but differ in two things: the cloud endpoints (HTTPS +
+MQTTS host/port) and the **tenant** segment of the MQTT topics
+(`root/{tenant}/devices/{uid}/...`).
+
+**Decision**: The config flow asks the user to pick a **provider**:
+
+- **Sirius** — `https://sirius.iotpga.it`, `mqtts://sirius.iotpga.it:8884`,
+  tenant `codermine`.
+- **Pando** — `https://pando.iotpga.it`, `mqtts://pando.iotpga.it:8883`,
+  tenant `pando`.
+- **Custom** — the user supplies the HTTPS/MQTTS URLs and the tenant (advanced,
+  e.g. a non-standard server or disabling TLS verification).
+
+The resolved endpoints and tenant are stored on the config entry, so there is
+no provider branching at setup: the tenant is simply passed to `SiriusMQTT`
+and used to build topic subscriptions.
+
+**Consequences**:
+- One integration serves both brands; the REST layer is unchanged.
+- Existing entries (with no stored provider) default to Sirius (`codermine`).
+- Adding a brand is a data change (a new registry entry) plus a menu option.

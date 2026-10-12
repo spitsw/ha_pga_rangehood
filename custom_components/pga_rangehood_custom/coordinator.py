@@ -1,0 +1,253 @@
+# Copyright (c) 2026 Warren Spits
+"""DataUpdateCoordinator for Sirius Rangehood."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+
+from .api import (
+    GET_STATUS_INTERVAL,
+    RESPONSE_TIMEOUT,
+    SiriusAuthError,
+    SiriusHub,
+    SiriusMQTT,
+)
+from .const import CONF_PROVIDER, DOMAIN, PROVIDER_SIRIUS
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import CALLBACK_TYPE, HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
+
+MQTT_ISSUE_ID = "mqtt_unavailable"
+
+
+class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
+    """
+    Owns the authoritative per-device state for a Sirius account.
+
+    Both data paths funnel through this coordinator: MQTT push updates via
+    :meth:`apply_mqtt_update`, and the periodic HTTP ``getStatus`` heartbeat
+    via :meth:`_async_update_data`. It also tracks MQTT broker connectivity so
+    entities can go unavailable and a Repairs issue can surface on outage.
+    """
+
+    _MQTT_GRACE_PERIOD = timedelta(seconds=30)
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        hub: SiriusHub,
+        device_states: dict[str, dict[str, Any]],
+    ) -> None:
+        """Initialize the coordinator with the discovered device state."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN} devices",
+            update_method=self._async_update_data,
+            update_interval=timedelta(seconds=GET_STATUS_INTERVAL),
+        )
+        self._entry = entry
+        self._hub = hub
+        self._mqtt: SiriusMQTT | None = None
+        self.device_states = device_states
+        self._mqtt_connected = False
+        self._mqtt_down_since: datetime | None = None
+        self._grace_unsub: CALLBACK_TYPE | None = None
+        self._mqtt_repair_raised = False
+
+    @property
+    def hub(self) -> SiriusHub:
+        """Return the HTTP API client backing this coordinator."""
+        return self._hub
+
+    def attach_mqtt(self, mqtt: SiriusMQTT) -> None:
+        """Attach the MQTT client used to confirm command acknowledgements."""
+        self._mqtt = mqtt
+
+    @property
+    def provider(self) -> str:
+        """Return the configured provider (sirius / pando / custom)."""
+        return self._entry.data.get(CONF_PROVIDER, PROVIDER_SIRIUS)
+
+    @property
+    def mqtt_connected(self) -> bool:
+        """Return True while the MQTT broker connection is up."""
+        return self._mqtt_connected
+
+    @property
+    def mqtt_available(self) -> bool:
+        """
+        Return True when MQTT state is fresh enough to trust.
+
+        A short grace period after a disconnect avoids flapping entities
+        unavailable during paho's automatic reconnect.
+        """
+        if self._mqtt_connected:
+            return True
+        if self._mqtt_down_since is None:
+            return True
+        return datetime.now(UTC) - self._mqtt_down_since < self._MQTT_GRACE_PERIOD
+
+    def set_mqtt_connected(self, connected: bool) -> None:  # noqa: FBT001
+        """
+        Record broker connectivity and refresh consumers.
+
+        aiomqtt runs on the HA event loop, so this is called directly from
+        the MQTT task (see ADR-2).
+        """
+        if self._grace_unsub is not None:
+            self._grace_unsub()
+            self._grace_unsub = None
+        self._mqtt_connected = connected
+        if connected:
+            self._mqtt_down_since = None
+            self._clear_mqtt_repair()
+        else:
+            self._mqtt_down_since = datetime.now(UTC)
+            self._grace_unsub = async_call_later(
+                self.hass,
+                self._MQTT_GRACE_PERIOD.total_seconds(),
+                self._on_mqtt_grace_elapsed,
+            )
+        self.async_set_updated_data(self._snapshot())
+
+    def _on_mqtt_grace_elapsed(self, _now: datetime) -> None:
+        """Raise the outage repair once the grace period has passed."""
+        self._grace_unsub = None
+        self._raise_mqtt_repair()
+        self.async_set_updated_data(self._snapshot())
+
+    def _raise_mqtt_repair(self) -> None:
+        if self._mqtt_repair_raised:
+            return
+        self._mqtt_repair_raised = True
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            MQTT_ISSUE_ID,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key=MQTT_ISSUE_ID,
+        )
+
+    def _clear_mqtt_repair(self) -> None:
+        if not self._mqtt_repair_raised:
+            return
+        self._mqtt_repair_raised = False
+        ir.async_delete_issue(self.hass, DOMAIN, MQTT_ISSUE_ID)
+
+    async def async_shutdown(self) -> None:
+        """Cancel pending timers before shutting the coordinator down."""
+        if self._grace_unsub is not None:
+            self._grace_unsub()
+            self._grace_unsub = None
+        await super().async_shutdown()
+
+    def request_reauth(self) -> None:
+        """Ask Home Assistant to start the re-authentication flow."""
+        self._entry.async_start_reauth(self.hass)
+
+    def set_device_name(self, device_id: str, name: str) -> None:
+        """Record a renamed device in the state and refresh listeners."""
+        if device_id in self.device_states:
+            self.device_states[device_id]["name"] = name
+            self.async_set_updated_data(self._snapshot())
+
+    def _snapshot(self) -> dict[str, dict[str, Any]]:
+        """Return a shallow copy of the device state for listeners."""
+        return dict(self.device_states)
+
+    async def async_send_command(
+        self, device_id: str, params: list[dict[str, Any]]
+    ) -> bool:
+        """
+        Send a setValue command and confirm it over the MQTT response topic.
+
+        The HTTP 200 is the primary gate and is returned as *accepted*. When
+        accepted, the command's MQTT acknowledgement is awaited for logging:
+        a non-zero status is warned about, and a missing acknowledgement
+        within the timeout is treated as inconclusive (the device may still
+        apply the command) rather than a failure.
+        """
+        started = time.monotonic()
+        result = await self._hub.async_send_command(device_id, params)
+        if not result.accepted:
+            return False
+        await self._log_command_ack(device_id, result.request_id, started)
+        return True
+
+    async def _log_command_ack(
+        self, device_id: str, request_id: str, started: float
+    ) -> None:
+        """Await the MQTT acknowledgement and log its outcome at debug/warning."""
+        if self._mqtt is None:
+            return
+        response = await self._mqtt.wait_for_response(request_id)
+        elapsed = time.monotonic() - started
+        if response is None:
+            _LOGGER.debug(
+                "No MQTT acknowledgement for %s within %.1fs (inconclusive)",
+                device_id,
+                RESPONSE_TIMEOUT,
+            )
+            return
+        status = response.get("status")
+        if status == 0:
+            _LOGGER.debug(
+                "Command for %s acknowledged in %.2fs: %s",
+                device_id,
+                elapsed,
+                response,
+            )
+        else:
+            _LOGGER.warning(
+                "Command for %s acknowledged with status %s after %.2fs: %s",
+                device_id,
+                status,
+                elapsed,
+                response,
+            )
+
+    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        """Heartbeat: send getStatus for all devices in parallel."""
+        _LOGGER.debug("Coordinator update for %d device(s)", len(self.device_states))
+        results = await asyncio.gather(
+            *[self._hub.async_get_status(did) for did in self.device_states],
+            return_exceptions=True,
+        )
+        for device_id, result in zip(list(self.device_states), results, strict=False):
+            if isinstance(result, SiriusAuthError):
+                _LOGGER.warning(
+                    "Auth failed for device %s, requesting reauth", device_id
+                )
+                self.request_reauth()
+                return self._snapshot()
+            if isinstance(result, Exception):
+                _LOGGER.error("getStatus failed for device %s", device_id)
+            elif result is False:
+                _LOGGER.debug("getStatus request not accepted for %s", device_id)
+        return self._snapshot()
+
+    def apply_mqtt_update(self, device_id: str, payload: dict[str, Any]) -> None:
+        """
+        Merge an MQTT status payload and notify listeners.
+
+        aiomqtt runs on the HA event loop, so this is called directly from
+        the MQTT task (see ADR-2).
+        """
+        if device_id in self.device_states:
+            _LOGGER.debug("MQTT status for device %s: %s", device_id, payload)
+            self.device_states[device_id].update(payload)
+            self.async_set_updated_data(self._snapshot())
