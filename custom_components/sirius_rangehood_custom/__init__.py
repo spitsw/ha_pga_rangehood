@@ -15,11 +15,14 @@ from homeassistant.helpers.storage import Store
 
 from .api import SIRIUS_MQTT_TENANT, SiriusAuthError, SiriusHub, SiriusMQTT
 from .const import (
+    CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
-    CONF_SIRIUS_ENDPOINT,
-    CONF_SIRIUS_MQTTS_ENDPOINT,
+    CONF_MQTTS_ENDPOINT,
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
+    LEGACY_CONF_ENDPOINT,
+    LEGACY_CONF_MQTTS_ENDPOINT,
 )
 from .coordinator import SiriusRangehoodCoordinator
 from .data import SiriusRangehoodData
@@ -42,20 +45,38 @@ PLATFORMS = [
 ]
 
 
+async def async_migrate_entry(
+    hass: HomeAssistant,
+    entry: SiriusRangehoodConfigEntry,
+) -> bool:
+    """Rename the pre-provider endpoint keys to the neutral keys (v1 -> v2)."""
+    if entry.version >= CONFIG_ENTRY_VERSION:
+        return True
+    data = dict(entry.data)
+    if LEGACY_CONF_ENDPOINT in data:
+        data[CONF_ENDPOINT] = data.pop(LEGACY_CONF_ENDPOINT)
+    if LEGACY_CONF_MQTTS_ENDPOINT in data:
+        data[CONF_MQTTS_ENDPOINT] = data.pop(LEGACY_CONF_MQTTS_ENDPOINT)
+    hass.config_entries.async_update_entry(
+        entry, data=data, version=CONFIG_ENTRY_VERSION
+    )
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: SiriusRangehoodConfigEntry,
 ) -> bool:
     """Set up Sirius Rangehood from a config entry."""
-    sirius_endpoint = entry.data[CONF_SIRIUS_ENDPOINT]
-    mqtts_endpoint = entry.data[CONF_SIRIUS_MQTTS_ENDPOINT]
+    endpoint = entry.data[CONF_ENDPOINT]
+    mqtts_endpoint = entry.data[CONF_MQTTS_ENDPOINT]
     username = entry.data[CONF_USERNAME]
     password = entry.data[CONF_PASSWORD]
     insecure_tls = entry.data.get(CONF_INSECURE_TLS, False)
     tenant = entry.data.get(CONF_MQTT_TENANT, SIRIUS_MQTT_TENANT)
 
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
-    hub = SiriusHub(session, sirius_endpoint, username, password)
+    hub = SiriusHub(session, endpoint, username, password)
 
     # Auth token persistence
     store = Store[dict[str, Any]](hass, 1, f"{DOMAIN}_auth_{entry.entry_id}")
@@ -102,7 +123,7 @@ async def async_setup_entry(
         raise ConfigEntryNotReady(msg) from err
 
     _LOGGER.info(
-        "Sirius Rangehood setup complete: %d device(s), %s",
+        "Rangehood setup complete: %d device(s), %s",
         len(devices),
         "MQTT connected" if mqtt_connected else "MQTT offline",
     )
@@ -128,10 +149,10 @@ async def _async_discover_devices(hub: SiriusHub) -> list[dict[str, Any]]:
     except SiriusAuthError as err:
         raise ConfigEntryAuthFailed(str(err)) from err
     except Exception as err:
-        msg = f"Sirius device discovery failed: {err}"
+        msg = f"Device discovery failed: {err}"
         raise ConfigEntryNotReady(msg) from err
     if not devices:
-        msg = "No Sirius devices discovered"
+        msg = "No devices discovered"
         raise ConfigEntryNotReady(msg)
     return devices
 

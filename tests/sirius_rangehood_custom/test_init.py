@@ -14,10 +14,12 @@ from custom_components.sirius_rangehood_custom.api import (
     DEFAULT_SIRIUS_MQTTS_ENDPOINT,
 )
 from custom_components.sirius_rangehood_custom.const import (
+    CONF_ENDPOINT,
     CONF_INSECURE_TLS,
-    CONF_SIRIUS_ENDPOINT,
-    CONF_SIRIUS_MQTTS_ENDPOINT,
+    CONF_MQTTS_ENDPOINT,
     DOMAIN,
+    LEGACY_CONF_ENDPOINT,
+    LEGACY_CONF_MQTTS_ENDPOINT,
 )
 
 
@@ -82,8 +84,8 @@ async def test_setup_and_unload(hass, monkeypatch) -> None:
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_SIRIUS_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
-            CONF_SIRIUS_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
+            CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
+            CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
             CONF_USERNAME: "user",
             CONF_PASSWORD: "pass",
             CONF_INSECURE_TLS: False,
@@ -99,3 +101,31 @@ async def test_setup_and_unload(hass, monkeypatch) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_migrate_renames_legacy_endpoint_keys(hass, monkeypatch) -> None:
+    """A pre-provider entry gets its endpoint keys renamed on setup."""
+    monkeypatch.setattr(sirius, "SiriusHub", _FakeHub)
+    monkeypatch.setattr(sirius, "SiriusMQTT", _FakeMQTT)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
+        data={
+            LEGACY_CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
+            LEGACY_CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "pass",
+            CONF_INSECURE_TLS: False,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert entry.version == 2
+    assert entry.data[CONF_ENDPOINT] == DEFAULT_SIRIUS_ENDPOINT
+    assert entry.data[CONF_MQTTS_ENDPOINT] == DEFAULT_SIRIUS_MQTTS_ENDPOINT
+    assert LEGACY_CONF_ENDPOINT not in entry.data
+    assert LEGACY_CONF_MQTTS_ENDPOINT not in entry.data

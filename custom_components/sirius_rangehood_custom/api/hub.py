@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""HTTP API client for the Sirius server."""
+"""HTTP API client for the rangehood cloud server."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ _CLIENT_TIMEOUT = aiohttp.ClientTimeout(total=API_TIMEOUT)
 
 
 def _auth_headers(token: str) -> dict[str, str]:
-    """Return standard headers for Sirius API requests."""
+    """Return standard headers for API requests."""
     return {
         "Authorization": f"Bearer {token}",
         "User-Agent": _USER_AGENT,
@@ -78,18 +78,18 @@ async def _run_with_retry[T](
 
 
 class SiriusHub:
-    """Manages authentication and HTTP API calls to the Sirius server."""
+    """Manages authentication and HTTP API calls to the cloud server."""
 
     def __init__(
         self,
         session: aiohttp.ClientSession,
-        sirius_endpoint: str = "",
+        endpoint: str = "",
         username: str = "",
         password: str = "",
     ) -> None:
         """Initialize the hub with the shared Home Assistant HTTP session."""
         self._session = session
-        self._sirius_endpoint = sirius_endpoint.rstrip("/")
+        self._endpoint = endpoint.rstrip("/")
         self._username = username
         self._password = password
         self._store: Store | None = None
@@ -99,8 +99,8 @@ class SiriusHub:
 
     @property
     def endpoint(self) -> str:
-        """Return the configured Sirius REST endpoint."""
-        return self._sirius_endpoint
+        """Return the configured REST endpoint."""
+        return self._endpoint
 
     @property
     def token_expiry(self) -> datetime | None:
@@ -137,7 +137,7 @@ class SiriusHub:
 
     async def _async_login(self, *, retry: bool = True) -> str:
         """Authenticate and store the token."""
-        url = f"{self._sirius_endpoint}{API_LOGIN}"
+        url = f"{self._endpoint}{API_LOGIN}"
         payload = {
             "email": self._username,
             "password": self._password,
@@ -167,7 +167,7 @@ class SiriusHub:
                         {"token": token, "expiry": self._token_expiry.isoformat()}
                     )
                 _LOGGER.info(
-                    "Sirius auth token refreshed, expires at %s",
+                    "Auth token refreshed, expires at %s",
                     self._token_expiry.isoformat(),
                 )
                 return token
@@ -183,13 +183,13 @@ class SiriusHub:
         self, *, retry: bool = True
     ) -> list[dict[str, Any]]:
         """
-        Fetch all devices from the Sirius server and flatten their data.
+        Fetch all devices from the cloud server and flatten their data.
 
         When *retry* is False (config flow), a single attempt is made;
         the caller can resubmit on failure.
         """
         token = await self.async_ensure_token(retry=retry)
-        url = f"{self._sirius_endpoint}{API_DEVICES}"
+        url = f"{self._endpoint}{API_DEVICES}"
         headers = _auth_headers(token)
 
         def http_call() -> Any:
@@ -299,7 +299,7 @@ class SiriusHub:
     async def _post_set_value(self, device_id: str, payload: dict[str, Any]) -> bool:
         """Low-level POST to /devices/{id}/set_value. True when accepted (HTTP 200)."""
         token = await self.async_ensure_token()
-        url = f"{self._sirius_endpoint}{API_SET_VALUE.format(device_id=device_id)}"
+        url = f"{self._endpoint}{API_SET_VALUE.format(device_id=device_id)}"
         headers = _auth_headers(token)
         try:
             async with await _run_with_retry(
@@ -337,4 +337,4 @@ class SiriusHub:
 
 
 class SiriusAuthError(Exception):
-    """Raised when authentication with the Sirius server fails."""
+    """Raised when authentication with the cloud server fails."""

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""MQTTS client for receiving real-time status from Sirius devices."""
+"""MQTTS client for receiving real-time status from rangehood devices."""
 
 from __future__ import annotations
 
@@ -37,8 +37,8 @@ def _build_tls_context() -> ssl.SSLContext:
     Build the MQTT TLS context.
 
     ``create_default_context`` reads the system CA paths, so this must run in
-    an executor rather than on the event loop. The Sirius broker's certificate
-    has expired, so server verification is disabled unconditionally (see
+    an executor rather than on the event loop. The broker's certificate has
+    expired, so server verification is disabled unconditionally (see
     ARCHITECTURE.md, ADR-1).
     """
     context = ssl.create_default_context()
@@ -49,11 +49,12 @@ def _build_tls_context() -> ssl.SSLContext:
 
 class SiriusMQTT:
     """
-    Manages an MQTTS connection to the Sirius cloud broker.
+    Manages an MQTTS connection to the rangehood cloud broker.
 
-    The broker is the Sirius cloud's; the client subscribes to per-device status
-    topics. aiomqtt drives paho-mqtt's socket on the Home Assistant event loop
-    (no background thread), so the callbacks fire on the loop directly.
+    The broker belongs to the provider's cloud; the client subscribes to
+    per-device status topics. aiomqtt drives paho-mqtt's socket on the Home
+    Assistant event loop (no background thread), so the callbacks fire on the
+    loop directly.
     """
 
     _DEFAULT_PORT = 8884
@@ -124,7 +125,7 @@ class SiriusMQTT:
         self._tls_context = await self._hass.async_add_executor_job(_build_tls_context)
         self._connected_event = asyncio.Event()
         self._task = self._hass.async_create_background_task(
-            self._run(), f"Sirius MQTT ({self._host})"
+            self._run(), f"Rangehood MQTT ({self._host})"
         )
         try:
             await asyncio.wait_for(self._connected_event.wait(), _CONNECT_TIMEOUT)

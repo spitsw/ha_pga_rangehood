@@ -13,11 +13,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SiriusAuthError, SiriusHub
 from .const import (
+    CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
+    CONF_MQTTS_ENDPOINT,
     CONF_PROVIDER,
-    CONF_SIRIUS_ENDPOINT,
-    CONF_SIRIUS_MQTTS_ENDPOINT,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_PROVIDER,
     DOMAIN,
     PROVIDER_CUSTOM,
@@ -38,17 +39,17 @@ _FALLBACK = PROVIDERS[DEFAULT_PROVIDER]
 
 STEP_ENDPOINTS_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_SIRIUS_ENDPOINT, default=_FALLBACK.endpoint): str,
-        vol.Required(CONF_SIRIUS_MQTTS_ENDPOINT, default=_FALLBACK.mqtts_endpoint): str,
+        vol.Required(CONF_ENDPOINT, default=_FALLBACK.endpoint): str,
+        vol.Required(CONF_MQTTS_ENDPOINT, default=_FALLBACK.mqtts_endpoint): str,
         vol.Required(CONF_MQTT_TENANT, default=_FALLBACK.tenant): str,
         vol.Optional(CONF_INSECURE_TLS, default=False): bool,
     }
 )
 
 
-def _validate_urls(sirius_endpoint: str, mqtts_endpoint: str) -> str | None:
+def _validate_urls(endpoint: str, mqtts_endpoint: str) -> str | None:
     """Return an error key if URL schemes are invalid, else None."""
-    if not sirius_endpoint.startswith("https://"):
+    if not endpoint.startswith("https://"):
         return "invalid_https_url"
     if not mqtts_endpoint.startswith("mqtts://"):
         return "invalid_mqtts_url"
@@ -67,14 +68,14 @@ async def _try_discover_devices(
     user_input: dict[str, Any],
     errors: dict[str, str],
     *,
-    sirius_endpoint: str = _FALLBACK.endpoint,
+    endpoint: str = _FALLBACK.endpoint,
     insecure_tls: bool = False,
 ) -> list[dict[str, Any]] | None:
     """Validate credentials against an endpoint and discover devices."""
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
     hub = SiriusHub(
         session,
-        sirius_endpoint,
+        endpoint,
         user_input[CONF_USERNAME],
         user_input[CONF_PASSWORD],
     )
@@ -99,7 +100,7 @@ async def _try_discover_devices(
 class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Sirius Rangehood."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
 
     _user_input: dict[str, Any]
     _config: dict[str, Any]
@@ -121,8 +122,8 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         }
         self._apply_config(
             entry.data.get(CONF_PROVIDER, DEFAULT_PROVIDER),
-            entry.data.get(CONF_SIRIUS_ENDPOINT, _FALLBACK.endpoint),
-            entry.data.get(CONF_SIRIUS_MQTTS_ENDPOINT, _FALLBACK.mqtts_endpoint),
+            entry.data.get(CONF_ENDPOINT, _FALLBACK.endpoint),
+            entry.data.get(CONF_MQTTS_ENDPOINT, _FALLBACK.mqtts_endpoint),
             entry.data.get(CONF_MQTT_TENANT, _FALLBACK.tenant),
             insecure_tls=entry.data.get(CONF_INSECURE_TLS, False),
         )
@@ -139,8 +140,8 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         """Set the endpoint configuration used for login validation and saving."""
         self._config = {
             CONF_PROVIDER: provider,
-            CONF_SIRIUS_ENDPOINT: endpoint,
-            CONF_SIRIUS_MQTTS_ENDPOINT: mqtts_endpoint,
+            CONF_ENDPOINT: endpoint,
+            CONF_MQTTS_ENDPOINT: mqtts_endpoint,
             CONF_MQTT_TENANT: tenant,
             CONF_INSECURE_TLS: insecure_tls,
         }
@@ -169,7 +170,7 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
             self.hass,
             user_input,
             errors,
-            sirius_endpoint=self._config[CONF_SIRIUS_ENDPOINT],
+            endpoint=self._config[CONF_ENDPOINT],
             insecure_tls=self._config[CONF_INSECURE_TLS],
         )
 
@@ -284,16 +285,16 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             error = _validate_urls(
-                user_input[CONF_SIRIUS_ENDPOINT],
-                user_input[CONF_SIRIUS_MQTTS_ENDPOINT],
+                user_input[CONF_ENDPOINT],
+                user_input[CONF_MQTTS_ENDPOINT],
             ) or _validate_tenant(user_input[CONF_MQTT_TENANT])
             if error:
                 errors["base"] = error
             else:
                 self._apply_config(
                     PROVIDER_CUSTOM,
-                    user_input[CONF_SIRIUS_ENDPOINT],
-                    user_input[CONF_SIRIUS_MQTTS_ENDPOINT],
+                    user_input[CONF_ENDPOINT],
+                    user_input[CONF_MQTTS_ENDPOINT],
                     user_input[CONF_MQTT_TENANT],
                     insecure_tls=user_input.get(CONF_INSECURE_TLS, False),
                 )
@@ -305,7 +306,7 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
                     if devices is None:
                         _LOGGER.warning(
                             "Endpoint %s did not validate (%s); saving anyway",
-                            self._config[CONF_SIRIUS_ENDPOINT],
+                            self._config[CONF_ENDPOINT],
                             check.get("base"),
                         )
                     else:

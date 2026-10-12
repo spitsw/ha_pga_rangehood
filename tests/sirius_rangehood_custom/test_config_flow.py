@@ -14,11 +14,11 @@ from custom_components.sirius_rangehood_custom.api import (
 )
 from custom_components.sirius_rangehood_custom.config_flow import _validate_urls
 from custom_components.sirius_rangehood_custom.const import (
+    CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
+    CONF_MQTTS_ENDPOINT,
     CONF_PROVIDER,
-    CONF_SIRIUS_ENDPOINT,
-    CONF_SIRIUS_MQTTS_ENDPOINT,
     DOMAIN,
     PROVIDER_PANDO,
     PROVIDER_SIRIUS,
@@ -93,9 +93,7 @@ async def test_user_flow_creates_entry_with_defaults(hass, monkeypatch) -> None:
     )
     assert result["type"] == "create_entry"
     assert result["data"][cf.CONF_USERNAME] == "user"
-    assert (
-        result["data"][cf.CONF_SIRIUS_ENDPOINT] == PROVIDERS[PROVIDER_SIRIUS].endpoint
-    )
+    assert result["data"][cf.CONF_ENDPOINT] == PROVIDERS[PROVIDER_SIRIUS].endpoint
     assert result["data"][CONF_PROVIDER] == PROVIDER_SIRIUS
     assert result["data"][CONF_MQTT_TENANT] == SIRIUS_MQTT_TENANT
 
@@ -123,8 +121,8 @@ async def test_pando_flow_uses_pando_defaults(hass, monkeypatch) -> None:
     )
     assert result["type"] == "create_entry"
     assert result["data"][CONF_PROVIDER] == PROVIDER_PANDO
-    assert result["data"][CONF_SIRIUS_ENDPOINT] == DEFAULT_PANDO_ENDPOINT
-    assert result["data"][CONF_SIRIUS_MQTTS_ENDPOINT] == DEFAULT_PANDO_MQTTS_ENDPOINT
+    assert result["data"][CONF_ENDPOINT] == DEFAULT_PANDO_ENDPOINT
+    assert result["data"][CONF_MQTTS_ENDPOINT] == DEFAULT_PANDO_MQTTS_ENDPOINT
     assert result["data"][CONF_MQTT_TENANT] == PANDO_MQTT_TENANT
 
 
@@ -139,8 +137,8 @@ async def test_reconfigure_reaches_endpoints_without_login(hass, monkeypatch) ->
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={
-            CONF_SIRIUS_ENDPOINT: "https://broken.example.com",
-            CONF_SIRIUS_MQTTS_ENDPOINT: "mqtts://broken.example.com:8884",
+            CONF_ENDPOINT: "https://broken.example.com",
+            CONF_MQTTS_ENDPOINT: "mqtts://broken.example.com:8884",
             CONF_USERNAME: "user",
             CONF_PASSWORD: "pass",
             CONF_INSECURE_TLS: False,
@@ -164,13 +162,13 @@ async def test_reconfigure_reaches_endpoints_without_login(hass, monkeypatch) ->
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
-            CONF_SIRIUS_ENDPOINT: "https://fixed.example.com",
-            CONF_SIRIUS_MQTTS_ENDPOINT: "mqtts://fixed.example.com:8884",
+            CONF_ENDPOINT: "https://fixed.example.com",
+            CONF_MQTTS_ENDPOINT: "mqtts://fixed.example.com:8884",
             CONF_MQTT_TENANT: "acme",
             CONF_INSECURE_TLS: False,
         },
     )
     assert result["type"] == "abort"
     assert result["reason"] == "reconfigure_successful"
-    assert entry.data[CONF_SIRIUS_ENDPOINT] == "https://fixed.example.com"
+    assert entry.data[CONF_ENDPOINT] == "https://fixed.example.com"
     assert entry.data[CONF_MQTT_TENANT] == "acme"
