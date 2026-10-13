@@ -18,7 +18,7 @@ release. Please upgrade before reporting.
 Use GitHub's **private vulnerability reporting**:
 
 1. Open the repository's **Security** tab, or go directly to
-   <https://github.com/spitsw/hacs_pga_rangehood/security/advisories/new>.
+   <https://github.com/spitsw/ha_pga_rangehood/security/advisories/new>.
 2. Click **Report a vulnerability** and fill in the details.
 
 If the "Report a vulnerability" button is unavailable, private reporting has not
