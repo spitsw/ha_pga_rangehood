@@ -1,9 +1,15 @@
 # CHANGELOG
 
 
+## v1.3.0 (2026-10-13)
+
+
 ## v1.2.0 (2026-10-13)
 
 ### Chores
+
+- Rename repository references to ha_pga_rangehood
+  ([`d86fedf`](https://github.com/spitsw/ha_pga_rangehood/commit/d86fedf7a51def860dd9d198f68b167e0f152eb8))
 
 - **deps**: Update dependency pytest to v9.1.1
   ([`b168921`](https://github.com/spitsw/ha_pga_rangehood/commit/b168921cd9078241f5557fe4b3cd5cfe140455f5))
@@ -35,6 +41,9 @@
 
 - Support Pando rangehoods alongside Sirius
   ([`cbb4814`](https://github.com/spitsw/ha_pga_rangehood/commit/cbb4814065a59a1183331caa3b1fbe2a8587b255))
+
+- Trigger a minor release
+  ([`8eb4095`](https://github.com/spitsw/ha_pga_rangehood/commit/8eb4095a58c7b7caba4fe49b43b4e7c2c8d5ea45))
 
 ### Refactoring
 
