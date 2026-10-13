@@ -10,5 +10,5 @@
   "issue_tracker": "https://github.com/spitsw/ha_pga_rangehood/issues",
   "loggers": ["custom_components.pga_rangehood_custom"],
   "requirements": ["aiomqtt>=2.5.0"],
-  "version": "1.1.1"
+  "version": "1.2.0"
 }
