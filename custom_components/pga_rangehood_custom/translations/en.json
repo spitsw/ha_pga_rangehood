@@ -1,0 +1,135 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Log in to Sirius or Pando, or configure custom server endpoints if you use a non-standard server (advanced)."
+      },
+      "credentials": {
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        },
+        "description": "Enter your {provider} rangehood cloud credentials."
+      },
+      "endpoints": {
+        "data": {
+          "endpoint": "HTTPS Endpoint",
+          "mqtts_endpoint": "MQTTS Endpoint",
+          "mqtt_tenant": "MQTT topic tenant",
+          "insecure_tls": "Disable TLS certificate validation"
+        },
+        "description": "Override the default server endpoints (advanced)."
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid username or password.",
+      "cannot_connect": "Could not connect to the server.",
+      "no_devices": "No rangehood devices found.",
+      "invalid_https_url": "The HTTPS endpoint must start with https://",
+      "invalid_mqtts_url": "The MQTTS endpoint must start with mqtts://",
+      "invalid_tenant": "The MQTT tenant must be a single topic segment (no \"/\")."
+    },
+    "abort": {
+      "already_configured": "This account is already configured.",
+      "reconfigure_successful": "Configuration updated.",
+      "reauth_successful": "Re-authentication successful."
+    }
+  },
+  "entity": {
+    "text": {
+      "device_name": {
+        "name": "Device Name"
+      }
+    },
+    "switch": {
+      "bi_power": {
+        "name": "Bi-Power"
+      },
+      "power": {
+        "name": "Global Power"
+      },
+      "timer_active": {
+        "name": "Timer Active"
+      }
+    },
+    "button": {
+      "reset_filter_worn": {
+        "name": "Reset Filter Worn"
+      }
+    },
+    "binary_sensor": {
+      "filter_worn": {
+        "name": "Filter Worn"
+      },
+      "secondary_filter_worn": {
+        "name": "Secondary Filter Worn"
+      }
+    },
+    "light": {
+      "secondary_light": {
+        "name": "Secondary Light"
+      }
+    },
+    "number": {
+      "timer_duration": {
+        "name": "Timer Duration"
+      }
+    },
+    "sensor": {
+      "filter_clean_countdown": {
+        "name": "Filter Clean Countdown"
+      },
+      "secondary_filter_clean_countdown": {
+        "name": "Secondary Filter Clean Countdown"
+      },
+      "light_power": {
+        "name": "Light Power"
+      },
+      "light2_power": {
+        "name": "Secondary Light Power"
+      },
+      "fan_power": {
+        "name": "Fan Power"
+      },
+      "hood_power": {
+        "name": "Hood Power"
+      },
+      "timer_off_time": {
+        "name": "Turn-off Time"
+      },
+      "ip_address": {
+        "name": "IP Address"
+      },
+      "rssi": {
+        "name": "RSSI"
+      },
+      "ssid": {
+        "name": "SSID"
+      },
+      "firmware_version": {
+        "name": "Firmware Version"
+      },
+      "firmware_code": {
+        "name": "Firmware Code"
+      },
+      "device_ref": {
+        "name": "Device Ref"
+      },
+      "device_type": {
+        "name": "Device Type"
+      },
+      "device_class": {
+        "name": "Device Class"
+      },
+      "secure_id": {
+        "name": "Secure ID"
+      }
+    }
+  },
+  "issues": {
+    "mqtt_unavailable": {
+      "title": "Rangehood MQTT connection lost",
+      "description": "Home Assistant cannot reach the rangehood MQTT broker, so live rangehood state is not being received. Check your network and that the broker's port is allowed; the integration will reconnect automatically once the broker is reachable."
+    }
+  }
+}

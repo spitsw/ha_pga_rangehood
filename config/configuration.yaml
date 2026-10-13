@@ -2,4 +2,4 @@ default_config:
 logger:
   default: warning
   logs:
-    custom_components.sirius_rangehood_custom: debug
+    custom_components.pga_rangehood_custom: debug

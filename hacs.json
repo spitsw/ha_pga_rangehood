@@ -1,9 +1,9 @@
 {
-  "name": "Sirius Rangehood",
+  "name": "Sirius & Pando Rangehood",
   "content_in_root": false,
   "zip_release": false,
   "render_readme": true,
-  "homeassistant": "2026.3.0",
+  "homeassistant": "2026.10.0",
   "hacs": "2.0.5",
   "country": []
 }

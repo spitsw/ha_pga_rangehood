@@ -5,19 +5,26 @@ Guidance for agents working in this repository.
 ## What this is
 
 A Home Assistant **custom integration** (HACS, `integration_type: device`,
-`iot_class: cloud_push`) for WiFi-enabled Sirius rangehoods. It talks to the
-Sirius cloud over two channels: an HTTPS REST API (auth, device discovery,
-commands) and an MQTTS broker (live state). It is one config entry per Sirius
-account, one HA device per discovered rangehood.
+`iot_class: cloud_push`) for WiFi-enabled **Sirius** and **Pando** rangehoods.
+Both are the same P.G.A. platform, differing only in their cloud endpoints and
+the MQTT topic **tenant**. It talks to the provider cloud over two channels: an
+HTTPS REST API (auth, device discovery, commands) and an MQTTS broker (live
+state). It is one config entry per account, one HA device per discovered
+rangehood.
+
+Providers are chosen in the config flow (Sirius / Pando / custom endpoints);
+the status topic is `root/{tenant}/devices/{uid}/status`, where the tenant is
+`codermine` for Sirius, `pando` for Pando, and user-supplied for custom. The
+REST paths are identical across providers — only host and tenant differ.
 
 The integration is split into two strict layers:
 
-- `custom_components/sirius_rangehood_custom/api/` — all protocol code (HTTP +
+- `custom_components/pga_rangehood_custom/api/` — all protocol code (HTTP +
   MQTT). **The HA layer never makes direct HTTP/MQTT calls and never imports
   a submodule of `api` — it imports everything from `.api`** (the package
   re-exports its public surface in `api/__init__.py::__all__`). When adding a
   constant or helper, add it to `api/__init__.py` too.
-- The rest of `custom_components/sirius_rangehood_custom/` — HA platform
+- The rest of `custom_components/pga_rangehood_custom/` — HA platform
   entities, config flow, coordinator wiring, diagnostics.
 
 ## Commands
@@ -101,21 +108,30 @@ load-bearing points:
   `_async_update_data`. Entities subclass `CoordinatorEntity` (via
   `SiriusEntity`) and only ever read `coordinator.data.get(device_id)`.
 - **Commands go out over HTTP, state comes in over MQTT.** `hub.async_send_command()`
-  POSTs `setValue`; the device then pushes a `/status` message that updates
-  state. Entities do not read the HTTP response for state.
+  POSTs `setValue` and returns a `CommandResult` (HTTP `accepted` + the
+  generated `requestId`); the device then pushes a `/status` message that
+  updates state. Entities do not read the HTTP response for state. Commands
+  are sent through `coordinator.async_send_command()`, which also awaits the
+  MQTT acknowledgement on `.../response/{requestId}` (see ADR-11): a
+  non-zero `status` is warned about, and a missing ack within
+  `RESPONSE_TIMEOUT` (5 s) is logged at debug as inconclusive — never a
+  failure. The HTTP 200 stays the primary gate.
 - **MQTT connectivity is surfaced.** The coordinator tracks `mqtt_connected`
-  (updated thread-safely from the paho callbacks; see below).
+  (set from the aiomqtt task on the event loop; see below).
   `SiriusEntity.available` reflects it with a 30 s grace, and a
   `mqtt_unavailable` Repairs issue is raised when an outage outlasts the grace.
 - **The HTTP `getStatus` heartbeat is a functional no-op.** The coordinator's
   `update_method` fires every 300 s purely so a periodic update exists (keeps
   `last_update_success` true and the MQTT stream primed). It never returns
   state. Do not "optimize" it into the state source.
-- **Thread safety (ADR-2):** paho-mqtt invokes `_on_message` / `_on_connect`
-  / `_on_disconnect` on a background thread. `_on_mqtt_status` and
-  `_on_mqtt_connection` must **only** schedule work via
-  `hass.loop.call_soon_threadsafe(coordinator.apply_mqtt_update | .set_mqtt_connected, ...)`.
-  Never touch `coordinator.data` / `device_states` from the paho thread.
+- **MQTT runs on the event loop (ADR-2):** the client uses `aiomqtt`, which
+drives paho-mqtt's socket on the HA loop (no background thread). A single
+background task (`entry.async_create_background_task`) connects, (re)subscribes,
+and consumes `client.messages`, routing `/status` to
+`coordinator.apply_mqtt_update`, `/response/` to the pending-request waiters,
+and connectivity to `set_mqtt_connected` **directly** — there is no
+`call_soon_threadsafe` bridge.
+Reconnection is the task's own exponential-backoff loop (ADR-10).
 - **Device discovery is setup-time only (ADR-7).** `/devices/` is fetched once
   in `async_setup_entry`. New devices require the user to run **Configure**
   (reconfigure) — there is no polling-for-new-devices path.
@@ -133,11 +149,13 @@ and constructs entities from `(coordinator, did, device, entry)`.
 | File | Entities |
 |------|----------|
 | `fan.py` | `SiriusRangehoodFan` — speeds 0-4, mapped to 0/25/50/75/100 % |
-| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp |
+| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp; `SiriusRangehoodSecondaryLight` for `device.light2*` (only if `light2OnOff` present) |
 | `switch.py` | Power, Bi-Power (only if capability present), Timer active |
 | `number.py` | Timer duration (min/max from `device["_limits"]`) |
-| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time |
-| `binary_sensor.py` | Filter worn |
+| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time; `SiriusRangehoodSecondaryFilterCountdown` for `device.filter2Value` (only if present) + power-draw sensors for `device.lightPower`/`device.light2Power`/`device.fanPower`/`device.hoodPower` (only if present) |
+| `binary_sensor.py` | Filter worn; `SiriusRangehoodSecondaryFilterWorn` for `device.filter2.worn` (only if present) |
+| `text.py` | `SiriusRangehoodDeviceName` — device name (CONFIG text); calls the rename API on change |
+| `button.py` | `SiriusRangehoodFilterResetButton` — reset the filter-worn flag |
 
 ## Conventions
 
@@ -174,23 +192,28 @@ and constructs entities from `(coordinator, did, device, entry)`.
   `capabilities[].value` fields are placeholder/default values, not live state,
   so only `_limits` (min/max) is kept. Live values arrive via MQTT. A test
   enforces this — do not "restore" capability values into the flat dict.
-- TLS verification is intentionally disabled (`CERT_NONE`, hostname check off)
-  for the Sirius broker because its certificate is expired (ADR-1). `insecure_tls`
-  from the config flow controls the equivalent for the HTTP client.
+- The Sirius broker's MQTT certificate has an **expired leaf** (its DigiCert
+  chain is otherwise valid). We **verify the chain and hostname** against the
+  system trust store plus a bundled `api/digicert_global_root_ca.pem` (its chain
+  ends at DigiCert's legacy Global Root CA, which current certifi and some OS
+  trust stores no longer ship), and disable only OpenSSL's time check
+  (`X509_V_FLAG_NO_CHECK_TIME`, `0x200000`) — never `CERT_NONE` (ADR-1).
+  `insecure_tls` from the config flow controls the equivalent for the HTTP client
+  (whose cert is valid until 2027).
 - The MQTT broker is an external, single-purpose connection managed directly
-  with `paho-mqtt` (declared in `manifest.json`), **not** HA's global `mqtt`
+  with `aiomqtt` (declared in `manifest.json`), **not** HA's global `mqtt`
   integration — do not move it there (ADR-1).
 - Do not edit `.storage` or `__pycache__`; `*.pyc`/`__pycache__/` are ignored
   and not tracked.
 
 ## Tests
 
-- Location: `tests/sirius_rangehood_custom/` (mirrors the component path).
+- Location: `tests/pga_rangehood_custom/` (mirrors the component path).
 - Run the whole suite with `pytest tests/`. Uses
   `pytest-homeassistant-custom-component` (declared in `requirements_dev.txt`);
   `pytest.ini` sets `asyncio_mode = auto` and `pythonpath = .`.
 - Coverage: `test_hub.py` (`_flatten_device`, token restore), `test_mqtt.py`
-  (payload parsing, topic extraction, connection callbacks), `test_const.py`
+  (payload parsing, topic extraction, subscription tracking), `test_const.py`
   (speed/percentage mapping, manifest consistency), `test_config_flow.py`
   (`_validate_urls` plus the user -> menu -> finish flow), `test_coordinator.py`
   (`apply_mqtt_update`, MQTT availability/grace), `test_init.py`
