@@ -160,7 +160,7 @@ class SiriusMQTT:
                 _CONNECT_TIMEOUT,
             )
             return False
-        return True
+        return self._connected
 
     async def async_stop(self) -> None:
         """Stop consuming and disconnect."""
@@ -177,11 +177,10 @@ class SiriusMQTT:
 
     async def _run(self) -> None:
         """Maintain the connection, reconnecting with exponential backoff."""
-        client = self._new_client()
         delay = _RECONNECT_MIN_DELAY
         while True:
             try:
-                async with client:
+                async with self._new_client() as client:
                     self._set_connected(connected=True)
                     delay = _RECONNECT_MIN_DELAY
                     for device_id in self._subscribed_devices:
@@ -203,6 +202,8 @@ class SiriusMQTT:
                         self._host,
                         err,
                     )
+                    if self._connected_event is not None:
+                        self._connected_event.set()
                     if self._auth_callback is not None:
                         self._auth_callback()
                     return
@@ -212,8 +213,11 @@ class SiriusMQTT:
                     err,
                     delay,
                 )
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, _RECONNECT_MAX_DELAY)
+            except Exception:
+                self._set_connected(connected=False)
+                _LOGGER.exception("Unexpected MQTT error; retrying in %.0fs", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _RECONNECT_MAX_DELAY)
 
     def _set_connected(self, *, connected: bool) -> None:
         """Record connectivity and notify the listener (HA event loop only)."""

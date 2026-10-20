@@ -16,10 +16,6 @@ from .api import (
 
 DOMAIN = "pga_rangehood_custom"
 
-# Config-entry schema version; bumped when entry data keys change (see
-# `async_migrate_entry`). v2 = neutral endpoint keys.
-CONFIG_ENTRY_VERSION = 2
-
 CONF_PROVIDER = "provider"
 CONF_ENDPOINT = "endpoint"
 CONF_MQTTS_ENDPOINT = "mqtts_endpoint"
@@ -27,11 +23,6 @@ CONF_MQTT_TENANT = "mqtt_tenant"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"  # noqa: S105
 CONF_INSECURE_TLS = "insecure_tls"
-
-# Pre-provider config-entry keys, renamed to the neutral keys above and migrated
-# in `async_migrate_entry`.
-LEGACY_CONF_ENDPOINT = "sirius_endpoint"
-LEGACY_CONF_MQTTS_ENDPOINT = "sirius_mqtts_endpoint"
 
 # Provider choices offered during setup.
 PROVIDER_SIRIUS = "sirius"

@@ -19,10 +19,7 @@ from .const import (
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
     CONF_MQTTS_ENDPOINT,
-    CONFIG_ENTRY_VERSION,
     DOMAIN,
-    LEGACY_CONF_ENDPOINT,
-    LEGACY_CONF_MQTTS_ENDPOINT,
 )
 from .coordinator import SiriusRangehoodCoordinator
 from .data import SiriusRangehoodData
@@ -45,24 +42,6 @@ PLATFORMS = [
     Platform.NUMBER,
     Platform.TEXT,
 ]
-
-
-async def async_migrate_entry(
-    hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
-) -> bool:
-    """Rename the pre-provider endpoint keys to the neutral keys (v1 -> v2)."""
-    if entry.version >= CONFIG_ENTRY_VERSION:
-        return True
-    data = dict(entry.data)
-    if LEGACY_CONF_ENDPOINT in data:
-        data[CONF_ENDPOINT] = data.pop(LEGACY_CONF_ENDPOINT)
-    if LEGACY_CONF_MQTTS_ENDPOINT in data:
-        data[CONF_MQTTS_ENDPOINT] = data.pop(LEGACY_CONF_MQTTS_ENDPOINT)
-    hass.config_entries.async_update_entry(
-        entry, data=data, version=CONFIG_ENTRY_VERSION
-    )
-    return True
 
 
 async def async_setup_entry(
@@ -90,10 +69,11 @@ async def async_setup_entry(
     # Discover devices: gets static properties + initial capability values
     devices = await _async_discover_devices(hub)
 
-    # Shared device state: uid (str) -> flattened state dict
+    # Shared device state: uid (str) -> flattened state dict. These are the
+    # same dicts held in `devices`, so a rename or MQTT merge stays in sync.
     device_states: dict[str, dict[str, Any]] = {}
     for device in devices:
-        device_states[device_key(device)] = dict(device)
+        device_states[device_key(device)] = device
 
     # Coordinator owns the authoritative state and the getStatus heartbeat.
     coordinator = SiriusRangehoodCoordinator(hass, entry, hub, device_states)
