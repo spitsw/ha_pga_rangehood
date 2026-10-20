@@ -107,6 +107,7 @@ async def async_setup_entry(
         password,
         coordinator.apply_mqtt_update,
         connection_callback=coordinator.set_mqtt_connected,
+        auth_callback=coordinator.request_reauth,
         identifier=entry.entry_id,
         tenant=tenant,
     )

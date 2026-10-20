@@ -42,8 +42,10 @@ async def async_setup_entry(
     """Set up the light platform."""
     entities = []
     for coordinator, device_id, device in iter_devices(entry):
-        entities.append(SiriusRangehoodLight(coordinator, device_id, device))
-        if CAP_LIGHT2_ONOFF in device.get("_limits", {}):
+        limits = device.get("_limits", {})
+        if CAP_LIGHT_ONOFF in limits:
+            entities.append(SiriusRangehoodLight(coordinator, device_id, device))
+        if CAP_LIGHT2_ONOFF in limits:
             entities.append(
                 SiriusRangehoodSecondaryLight(coordinator, device_id, device)
             )
@@ -69,10 +71,31 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
         device_id: str,
         device: dict[str, Any],
     ) -> None:
-        """Initialize the light entity."""
+        """Initialize the light entity from the device's colour capabilities."""
         super().__init__(
             coordinator, device_id, device, unique_suffix=self._unique_suffix
         )
+        limits = device.get("_limits", {})
+        self._brightness_min = LIGHT_BRIGHTNESS_MIN
+        self._brightness_max = LIGHT_BRIGHTNESS_MAX
+        if (bounds := limits.get(self._cap_brightness)) is not None:
+            low = int(bounds.get("min", LIGHT_BRIGHTNESS_MIN))
+            high = int(bounds.get("max", LIGHT_BRIGHTNESS_MAX))
+            if high > low:
+                self._brightness_min = low
+                self._brightness_max = high
+        if self._cap_color_temp in limits:
+            self._attr_supported_color_modes = {ColorMode.COLOR_TEMP}
+            self._attr_color_mode = ColorMode.COLOR_TEMP
+            bounds = limits[self._cap_color_temp]
+            self._attr_min_color_temp_kelvin = int(bounds["min"])
+            self._attr_max_color_temp_kelvin = int(bounds["max"])
+        elif self._cap_brightness in limits:
+            self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
+            self._attr_color_mode = ColorMode.BRIGHTNESS
+        else:
+            self._attr_supported_color_modes = {ColorMode.ONOFF}
+            self._attr_color_mode = ColorMode.ONOFF
 
     @property
     def is_on(self) -> bool | None:
@@ -88,9 +111,9 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
         val = state.get(self._cap_brightness)
         if val is not None:
             pct = float(val)
-            pct = max(LIGHT_BRIGHTNESS_MIN, min(LIGHT_BRIGHTNESS_MAX, pct))
-            normalized = (pct - LIGHT_BRIGHTNESS_MIN) / (
-                LIGHT_BRIGHTNESS_MAX - LIGHT_BRIGHTNESS_MIN
+            pct = max(self._brightness_min, min(self._brightness_max, pct))
+            normalized = (pct - self._brightness_min) / (
+                self._brightness_max - self._brightness_min
             )
             return round(normalized * 255)
         return None
@@ -106,25 +129,22 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on, applying brightness and colour temperature if given."""
-        params = []
-        has_attr = False
+        params = [{"id": self._cap_onoff, "value": 1.0}]
 
         if ATTR_BRIGHTNESS in kwargs:
-            has_attr = True
             ha_brightness = kwargs[ATTR_BRIGHTNESS]
-            pct = LIGHT_BRIGHTNESS_MIN + (ha_brightness / 255) * (
-                LIGHT_BRIGHTNESS_MAX - LIGHT_BRIGHTNESS_MIN
+            pct = self._brightness_min + (ha_brightness / 255) * (
+                self._brightness_max - self._brightness_min
             )
             params.append(
                 {
                     "id": self._cap_brightness,
                     "value": round(
-                        max(LIGHT_BRIGHTNESS_MIN, min(LIGHT_BRIGHTNESS_MAX, pct)), 1
+                        max(self._brightness_min, min(self._brightness_max, pct)), 1
                     ),
                 }
             )
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
-            has_attr = True
             params.append(
                 {
                     "id": self._cap_color_temp,
@@ -132,12 +152,6 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
                 }
             )
 
-        # Only send onOff when no brightness/color_temp is provided
-        if not has_attr:
-            params.append({"id": self._cap_onoff, "value": 1.0})
-
-        if not params:
-            return
         await self._async_send_command(params)
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # noqa: ARG002

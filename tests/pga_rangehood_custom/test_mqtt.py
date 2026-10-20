@@ -8,6 +8,7 @@ import ssl
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import aiomqtt
 import pytest
 
 from custom_components.pga_rangehood_custom.api.mqtt import (
@@ -30,9 +31,11 @@ def _make_mqtt(status_callback=None, connection_callback=None):
     )
 
 
-def _message(topic: str, payload: bytes) -> SimpleNamespace:
+def _message(topic: str, payload: bytes, *, retain: bool = False) -> SimpleNamespace:
     """Build a stand-in for an `aiomqtt.Message`."""
-    return SimpleNamespace(topic=SimpleNamespace(value=topic), payload=payload)
+    return SimpleNamespace(
+        topic=SimpleNamespace(value=topic), payload=payload, retain=retain
+    )
 
 
 class TestInit:
@@ -234,3 +237,63 @@ class TestWaitForResponse:
             )
         )
         assert mqtt._pending_responses == {}
+
+    def test_retained_message_is_ignored(self) -> None:
+        """A retained status message is not treated as live state."""
+        callback = MagicMock()
+        mqtt = _make_mqtt(callback)
+        payload = json.dumps(
+            {"values": [{"id": "device.fanSpeed", "value": 3}]}
+        ).encode()
+        mqtt._handle_message(
+            _message("root/codermine/devices/device-1/status", payload, retain=True)
+        )
+        callback.assert_not_called()
+
+
+class TestClientOptions:
+    """Verify the MQTT client is built with the expected options."""
+
+    def test_uses_v311_and_bounded_queue(self, monkeypatch) -> None:
+        """The client pins MQTT v3.1.1 and bounds the incoming queue."""
+        mqtt = _make_mqtt()
+        mqtt._tls_context = _build_tls_context()
+        captured: dict = {}
+
+        def fake_client(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(aiomqtt, "Client", fake_client)
+        mqtt._new_client()
+
+        assert captured["protocol"] is aiomqtt.ProtocolVersion.V311
+        assert captured["max_queued_incoming_messages"] == 256
+
+
+class TestAuthFailure:
+    """Verify a credential rejection triggers the auth callback."""
+
+    async def test_bad_credentials_trigger_reauth(self) -> None:
+        """A CONNACK rejection (rc 4/5) calls the auth callback and stops."""
+        callback = MagicMock()
+        mqtt = SiriusMQTT(
+            MagicMock(),
+            "mqtts://broker.example.com:8884",
+            "user",
+            "pass",
+            auth_callback=callback,
+        )
+
+        class _RejectedClient:
+            async def __aenter__(self):
+                raise aiomqtt.MqttCodeError(4, "bad credentials")
+
+            async def __aexit__(self, *_args):
+                return False
+
+        mqtt._new_client = _RejectedClient
+
+        await mqtt._run()
+
+        callback.assert_called_once()

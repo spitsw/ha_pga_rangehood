@@ -10,10 +10,12 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.const import EntityCategory
 
 from .api import (
+    CAP_FAN_FLOW,
     CAP_FAN_POWER,
     CAP_FILTER2_VALUE,
     CAP_FILTER_VALUE,
@@ -68,8 +70,8 @@ SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = tuple(
     for key, translation_key, icon, device_class, unit in _DIAGNOSTIC_SENSORS
 )
 
-# Read-only power-draw capabilities, created only when a device exposes them.
-_POWER_SENSORS: tuple[
+# Read-only measurement capabilities, created only when a device exposes them.
+_CAPABILITY_SENSORS: tuple[
     tuple[str, str, str, SensorDeviceClass | None, str | None], ...
 ] = (
     (
@@ -88,17 +90,26 @@ _POWER_SENSORS: tuple[
     ),
     (CAP_FAN_POWER, "fan_power", "mdi:fan", SensorDeviceClass.POWER, "W"),
     (CAP_HOOD_POWER, "hood_power", "mdi:counter", SensorDeviceClass.POWER, "W"),
+    (
+        CAP_FAN_FLOW,
+        "fan_flow",
+        "mdi:weather-windy",
+        SensorDeviceClass.VOLUME_FLOW_RATE,
+        "m³/h",
+    ),
 )
 
-POWER_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = tuple(
+CAPABILITY_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = tuple(
     SensorEntityDescription(
         key=key,
         translation_key=translation_key,
         icon=icon,
         device_class=device_class,
         native_unit_of_measurement=unit,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
     )
-    for key, translation_key, icon, device_class, unit in _POWER_SENSORS
+    for key, translation_key, icon, device_class, unit in _CAPABILITY_SENSORS
 )
 
 
@@ -110,21 +121,23 @@ async def async_setup_entry(
     """Set up the sensor platform."""
     entities = []
     for coordinator, did, device in iter_devices(entry):
+        limits = device.get("_limits", {})
         entities.extend(
             SiriusRangehoodSensor(coordinator, did, device, desc)
             for desc in SENSOR_DESCRIPTIONS
         )
-        entities.append(SiriusRangehoodFilterCountdown(coordinator, did, device))
-        if CAP_FILTER2_VALUE in device.get("_limits", {}):
+        if CAP_FILTER_VALUE in limits:
+            entities.append(SiriusRangehoodFilterCountdown(coordinator, did, device))
+        if CAP_FILTER2_VALUE in limits:
             entities.append(
                 SiriusRangehoodSecondaryFilterCountdown(coordinator, did, device)
             )
         entities.extend(
             SiriusRangehoodSensor(coordinator, did, device, desc)
-            for desc in POWER_SENSOR_DESCRIPTIONS
-            if desc.key in device.get("_limits", {})
+            for desc in CAPABILITY_SENSOR_DESCRIPTIONS
+            if desc.key in limits
         )
-        if CAP_TIMER_ENABLE in device.get("_limits", {}):
+        if CAP_TIMER_ENABLE in limits:
             entities.append(SiriusRangehoodTimerOffTime(coordinator, did, device))
     async_add_entities(entities)
 
@@ -155,6 +168,8 @@ class SiriusRangehoodFilterCountdown(SiriusEntity, SensorEntity):
     _attr_translation_key = "filter_clean_countdown"
     _attr_native_unit_of_measurement = "h"
     _attr_icon = "mdi:air-filter"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
 
     _cap_filter_value = CAP_FILTER_VALUE
     _unique_suffix = CAP_FILTER_VALUE

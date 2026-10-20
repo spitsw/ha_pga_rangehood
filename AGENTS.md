@@ -111,19 +111,25 @@ load-bearing points:
   POSTs `setValue` and returns a `CommandResult` (HTTP `accepted` + the
   generated `requestId`); the device then pushes a `/status` message that
   updates state. Entities do not read the HTTP response for state. Commands
-  are sent through `coordinator.async_send_command()`, which also awaits the
-  MQTT acknowledgement on `.../response/{requestId}` (see ADR-11): a
-  non-zero `status` is warned about, and a missing ack within
-  `RESPONSE_TIMEOUT` (5 s) is logged at debug as inconclusive — never a
-  failure. The HTTP 200 stays the primary gate.
+  are sent through `coordinator.async_send_command()`, which refuses to send
+  while MQTT is down, validates each value against the device's `_limits` and
+  the `WRITABLE_CAPABILITIES` allowlist, awaits the acknowledgement on
+  `.../response/{requestId}` (see ADR-11), and raises `HomeAssistantError` on
+  an HTTP rejection, a missing ack, or a non-zero `status`. A command is never
+  retried automatically.
 - **MQTT connectivity is surfaced.** The coordinator tracks `mqtt_connected`
   (set from the aiomqtt task on the event loop; see below).
   `SiriusEntity.available` reflects it with a 30 s grace, and a
   `mqtt_unavailable` Repairs issue is raised when an outage outlasts the grace.
-- **The HTTP `getStatus` heartbeat is a functional no-op.** The coordinator's
-  `update_method` fires every 300 s purely so a periodic update exists (keeps
-  `last_update_success` true and the MQTT stream primed). It never returns
-  state. Do not "optimize" it into the state source.
+  A broker credential rejection (CONNACK rc 4/5) stops the reconnect loop and
+  starts reauth via the `auth_callback`.
+- **The HTTP `getStatus` heartbeat refreshes state.** The coordinator's
+  `update_method` fires every 300 s, sends `getStatus` for each device, and
+  waits (bounded by `_STATUS_TIMEOUT`) for the resulting MQTT `/status`
+  message, so a dropped push self-corrects. It returns the refreshed snapshot,
+  raises `UpdateFailed` when no device produces fresh state (so
+  `last_update_success` reflects it), and raises `ConfigEntryAuthFailed` on a
+  credential rejection (→ reauth).
 - **MQTT runs on the event loop (ADR-2):** the client uses `aiomqtt`, which
 drives paho-mqtt's socket on the HA loop (no background thread). A single
 background task (`entry.async_create_background_task`) connects, (re)subscribes,
@@ -148,12 +154,12 @@ and constructs entities from `(coordinator, did, device, entry)`.
 
 | File | Entities |
 |------|----------|
-| `fan.py` | `SiriusRangehoodFan` — speeds 0-4, mapped to 0/25/50/75/100 % |
-| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp; `SiriusRangehoodSecondaryLight` for `device.light2*` (only if `light2OnOff` present) |
-| `switch.py` | Power, Bi-Power (only if capability present), Timer active |
+| `fan.py` | `SiriusRangehoodFan` — speed range from `device.fanSpeed` `_limits`; only if `fanSpeed` present |
+| `light.py` | `SiriusRangehoodLight` — colour mode (COLOR_TEMP/BRIGHTNESS/ONOFF), Kelvin and brightness ranges from `_limits`; only if `lightOnOff` present. `SiriusRangehoodSecondaryLight` for `device.light2*` |
+| `switch.py` | `SiriusRangehoodPowerSwitch` (if `onOff`), `SiriusRangehoodBiPowerSwitch`, `SiriusRangehoodCleanAirSwitch`, `SiriusRangehoodTimerSwitch` — each only if its capability is present |
 | `number.py` | Timer duration (min/max from `device["_limits"]`) |
-| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time; `SiriusRangehoodSecondaryFilterCountdown` for `device.filter2Value` (only if present) + power-draw sensors for `device.lightPower`/`device.light2Power`/`device.fanPower`/`device.hoodPower` (only if present) |
-| `binary_sensor.py` | Filter worn; `SiriusRangehoodSecondaryFilterWorn` for `device.filter2.worn` (only if present) |
+| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours, only if present) + timer off-time; `SiriusRangehoodSecondaryFilterCountdown` for `device.filter2Value` + capability sensors (`lightPower`/`light2Power`/`fanPower`/`hoodPower`/`fanFlow`, `state_class=MEASUREMENT`), each only if present |
+| `binary_sensor.py` | `SiriusRangehoodFilterWorn` (if `filter1.worn` present); `SiriusRangehoodSecondaryFilterWorn` for `device.filter2.worn` |
 | `text.py` | `SiriusRangehoodDeviceName` — device name (CONFIG text); calls the rename API on change |
 | `button.py` | `SiriusRangehoodFilterResetButton` — reset the filter-worn flag |
 

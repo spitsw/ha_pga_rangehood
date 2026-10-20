@@ -8,14 +8,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.fan import FanEntity
 from homeassistant.components.fan.const import FanEntityFeature
 
-from .api import (
-    CAP_FAN_SPEED,
-    FAN_SPEED_COUNT,
-    FAN_SPEED_LOW,
-    FAN_SPEED_OFF,
-    PERCENTAGE_TO_SPEED,
-    SPEED_TO_PERCENTAGE,
-)
+from .api import CAP_FAN_SPEED, FAN_SPEED_BOOST, FAN_SPEED_LOW, FAN_SPEED_OFF
 from .entity import SiriusEntity, iter_devices
 
 if TYPE_CHECKING:
@@ -32,19 +25,22 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the fan platform."""
-    entities = [SiriusRangehoodFan(c, did, d) for c, did, d in iter_devices(entry)]
+    entities = [
+        SiriusRangehoodFan(coordinator, device_id, device)
+        for coordinator, device_id, device in iter_devices(entry)
+        if CAP_FAN_SPEED in device.get("_limits", {})
+    ]
     async_add_entities(entities)
 
 
 class SiriusRangehoodFan(SiriusEntity, FanEntity):
-    """Representation of a Sirius Rangehood fan (speeds 0-4)."""
+    """Representation of a Sirius Rangehood fan."""
 
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
         | FanEntityFeature.TURN_ON
         | FanEntityFeature.TURN_OFF
     )
-    _attr_speed_count = FAN_SPEED_COUNT
 
     def __init__(
         self,
@@ -52,8 +48,12 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
         device_id: str,
         device: dict[str, Any],
     ) -> None:
-        """Initialize the fan entity."""
+        """Initialize the fan entity and its speed range."""
         super().__init__(coordinator, device_id, device, unique_suffix="fan")
+        bounds = device.get("_limits", {}).get(CAP_FAN_SPEED)
+        max_speed = int(bounds["max"]) if bounds else FAN_SPEED_OFF
+        self._max_speed = max_speed if max_speed >= FAN_SPEED_LOW else FAN_SPEED_BOOST
+        self._attr_speed_count = self._max_speed
 
     @property
     def is_on(self) -> bool | None:
@@ -64,18 +64,16 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
 
     @property
     def percentage(self) -> int | None:
-        """Return the current fan speed as a percentage."""
+        """Return the current fan speed as a percentage of the device range."""
         state = self._get_device_state()
         speed = state.get(CAP_FAN_SPEED, FAN_SPEED_OFF)
         if isinstance(speed, (int, float)):
-            return SPEED_TO_PERCENTAGE.get(int(speed), 0)
+            return round(int(speed) * 100 / self._max_speed)
         return None
 
     async def async_set_percentage(self, percentage: int) -> None:
-        """Set the fan speed from a percentage (nearest of 0/25/50/75/100)."""
-        speed = min(PERCENTAGE_TO_SPEED.items(), key=lambda x: abs(x[0] - percentage))[
-            1
-        ]
+        """Set the fan speed from a percentage of the device range."""
+        speed = min(self._max_speed, round(percentage * self._max_speed / 100))
         await self._async_send_command([{"id": CAP_FAN_SPEED, "value": speed}])
 
     async def async_turn_on(

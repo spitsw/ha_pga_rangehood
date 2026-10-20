@@ -10,6 +10,7 @@ from homeassistant.components.switch.const import SwitchDeviceClass
 
 from .api import (
     CAP_BI_POWER_ENABLED,
+    CAP_CLEAN_AIR_ENABLED,
     CAP_POWER,
     CAP_TIMER_ACTIVE,
     CAP_TIMER_ENABLE,
@@ -33,10 +34,14 @@ async def async_setup_entry(
     """Set up the switch platform."""
     entities = []
     for coordinator, did, device in iter_devices(entry):
-        entities.append(SiriusRangehoodPowerSwitch(coordinator, did, device))
-        if CAP_BI_POWER_ENABLED in device.get("_limits", {}):
+        limits = device.get("_limits", {})
+        if CAP_POWER in limits:
+            entities.append(SiriusRangehoodPowerSwitch(coordinator, did, device))
+        if CAP_BI_POWER_ENABLED in limits:
             entities.append(SiriusRangehoodBiPowerSwitch(coordinator, did, device))
-        if CAP_TIMER_ENABLE in device.get("_limits", {}):
+        if CAP_CLEAN_AIR_ENABLED in limits:
+            entities.append(SiriusRangehoodCleanAirSwitch(coordinator, did, device))
+        if CAP_TIMER_ENABLE in limits:
             entities.append(SiriusRangehoodTimerSwitch(coordinator, did, device))
     async_add_entities(entities)
 
@@ -78,11 +83,13 @@ class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
         await self._async_send_command([{"id": CAP_POWER, "value": 0.0}])
 
 
-class SiriusRangehoodBiPowerSwitch(SiriusEntity, SwitchEntity):
-    """Enable extra airflow and powerful extraction."""
+class SiriusRangehoodCapabilitySwitch(SiriusEntity, SwitchEntity):
+    """Base for a switch that writes 1/0 to a single boolean capability."""
 
-    _attr_translation_key = "bi_power"
     _attr_device_class = SwitchDeviceClass.SWITCH
+
+    _cap: str
+    _unique_suffix: str
 
     def __init__(
         self,
@@ -90,25 +97,44 @@ class SiriusRangehoodBiPowerSwitch(SiriusEntity, SwitchEntity):
         device_id: str,
         device: dict[str, Any],
     ) -> None:
-        """Initialize the bi-power switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="bi_power")
+        """Initialize the capability switch."""
+        super().__init__(
+            coordinator, device_id, device, unique_suffix=self._unique_suffix
+        )
 
     @property
     def is_on(self) -> bool | None:
-        """Return True when bi-power mode is enabled."""
-        state = self._get_device_state()
-        val = state.get(CAP_BI_POWER_ENABLED)
+        """Return True when the capability is enabled."""
+        val = self._get_device_state().get(self._cap)
         if val is not None:
             return bool(val)
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # noqa: ARG002
-        """Enable bi-power mode."""
-        await self._async_send_command([{"id": CAP_BI_POWER_ENABLED, "value": 1.0}])
+        """Enable the capability."""
+        await self._async_send_command([{"id": self._cap, "value": 1.0}])
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # noqa: ARG002
-        """Disable bi-power mode."""
-        await self._async_send_command([{"id": CAP_BI_POWER_ENABLED, "value": 0.0}])
+        """Disable the capability."""
+        await self._async_send_command([{"id": self._cap, "value": 0.0}])
+
+
+class SiriusRangehoodBiPowerSwitch(SiriusRangehoodCapabilitySwitch):
+    """Enable extra airflow and powerful extraction."""
+
+    _attr_translation_key = "bi_power"
+
+    _cap = CAP_BI_POWER_ENABLED
+    _unique_suffix = "bi_power"
+
+
+class SiriusRangehoodCleanAirSwitch(SiriusRangehoodCapabilitySwitch):
+    """Enable the hood's air-clean mode."""
+
+    _attr_translation_key = "clean_air"
+
+    _cap = CAP_CLEAN_AIR_ENABLED
+    _unique_suffix = "clean_air"
 
 
 class SiriusRangehoodTimerSwitch(SiriusEntity, SwitchEntity):

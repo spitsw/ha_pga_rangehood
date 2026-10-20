@@ -10,11 +10,14 @@ from custom_components.pga_rangehood_custom.api import (
     CAP_FAN_POWER,
     CAP_FILTER2_VALUE,
     CAP_FILTER2_WORN,
+    CAP_FILTER_VALUE,
+    CAP_FILTER_WORN,
     CAP_HOOD_POWER,
     CAP_LIGHT2_BRIGHTNESS,
     CAP_LIGHT2_COLOR_TEMP,
     CAP_LIGHT2_ONOFF,
     CAP_LIGHT2_POWER,
+    CAP_LIGHT_ONOFF,
     CAP_LIGHT_POWER,
 )
 from custom_components.pga_rangehood_custom.binary_sensor import (
@@ -31,7 +34,7 @@ from custom_components.pga_rangehood_custom.light import (
     async_setup_entry as setup_lights,
 )
 from custom_components.pga_rangehood_custom.sensor import (
-    POWER_SENSOR_DESCRIPTIONS,
+    CAPABILITY_SENSOR_DESCRIPTIONS,
     SiriusRangehoodFilterCountdown,
     SiriusRangehoodSecondaryFilterCountdown,
     SiriusRangehoodSensor,
@@ -130,7 +133,10 @@ class TestGating:
 
     async def test_light_created_when_capability_present(self, hass) -> None:
         """The secondary light appears when device.light2OnOff is advertised."""
-        limits = {CAP_LIGHT2_ONOFF: {"min": 0.0, "max": 1.0}}
+        limits = {
+            CAP_LIGHT_ONOFF: {"min": 0.0, "max": 1.0},
+            CAP_LIGHT2_ONOFF: {"min": 0.0, "max": 1.0},
+        }
         add = MagicMock()
         await setup_lights(
             hass, _entry([_device(limits=limits)], _coordinator({})), add
@@ -150,6 +156,8 @@ class TestGating:
         """Both secondary filter entities appear when advertised."""
         coordinator = _coordinator({})
         limits = {
+            CAP_FILTER_WORN: {"min": 0.0, "max": 1.0},
+            CAP_FILTER_VALUE: {"min": 0.0, "max": 360000.0},
             CAP_FILTER2_WORN: {"min": 0.0, "max": 1.0},
             CAP_FILTER2_VALUE: {"min": 0.0, "max": 360000.0},
         }
@@ -186,7 +194,7 @@ class TestGating:
 
 def _power_description(key: str):
     """Return the power sensor description for a capability key."""
-    return next(d for d in POWER_SENSOR_DESCRIPTIONS if d.key == key)
+    return next(d for d in CAPABILITY_SENSOR_DESCRIPTIONS if d.key == key)
 
 
 class TestPowerSensors:

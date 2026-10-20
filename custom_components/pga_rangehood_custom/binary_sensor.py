@@ -27,8 +27,10 @@ async def async_setup_entry(
     """Set up the binary sensor platform."""
     entities = []
     for coordinator, device_id, device in iter_devices(entry):
-        entities.append(SiriusRangehoodFilterWorn(coordinator, device_id, device))
-        if CAP_FILTER2_WORN in device.get("_limits", {}):
+        limits = device.get("_limits", {})
+        if CAP_FILTER_WORN in limits:
+            entities.append(SiriusRangehoodFilterWorn(coordinator, device_id, device))
+        if CAP_FILTER2_WORN in limits:
             entities.append(
                 SiriusRangehoodSecondaryFilterWorn(coordinator, device_id, device)
             )

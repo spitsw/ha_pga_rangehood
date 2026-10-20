@@ -117,18 +117,20 @@ live status updates. Commands (`setValue`) can only be sent via HTTP.
 - **Live state** → MQTT subscription to
   `root/codermine/devices/{id}/status`.
 - **Command acknowledgement** → MQTT subscription to
-  `root/codermine/devices/{id}/response/#`. Success is HTTP 200 **and**
-  a `status: 0` acknowledgement; a missing acknowledgement is
-  inconclusive, not a failure (see ADR-11).
-- **Periodic heartbeat** → HTTP `getStatus` (via the coordinator) keeps
-  the MQTT data stream alive.
+  `root/codermine/devices/{id}/response/#`. A command is only sent while
+  MQTT is connected and after its values are validated against the device's
+  limits; success is HTTP 200 **and** a `status: 0` acknowledgement, and a
+  missing or non-zero acknowledgement raises `HomeAssistantError` (ADR-11).
+- **Periodic heartbeat** → HTTP `getStatus` (via the coordinator) requests
+  fresh state and waits for the pushed `/status` message, so a dropped push
+  self-corrects.
 
 ```
 User action → FanEntity.async_turn_on()
                 → coordinator.async_send_command()
                     → hub.async_send_command() → HTTP POST /set_value
                 → mqtt.wait_for_response(requestId)
-Device acks → MQTT response topic → resolves the waiter (logs status + elapsed)
+Device acks → MQTT response topic → resolves the waiter (raises on error/timeout)
 Device state → MQTT status topic
                 → aiomqtt message loop → coordinator
                     → FanEntity updated via CoordinatorEntity
@@ -137,39 +139,33 @@ Device state → MQTT status topic
 **Consequences**:
 - Commands are synchronous (HTTP request/response) but state updates are
   asynchronous (MQTT push).
-- Command success is confirmed by the MQTT acknowledgement, which is
-  awaited with a bounded timeout so a slow device never blocks the UI.
-- Entities optimistically update locally after sending a command, then
-  converge when the MQTT status arrives.
+- A command's success is confirmed by the MQTT acknowledgement, awaited with
+  a bounded timeout; a failure surfaces to the caller as an error.
+- Entities reflect state only after the MQTT status arrives — there is no
+  optimistic local update.
 
 ---
 
-## ADR-5: Fan speed model (0-4)
+## ADR-5: Fan speed model
 
 **Status**: Accepted
 
 **Context**: HA's fan entity expects a `percentage` (0-100) and a
-`speed_count`. The Sirius API uses integer speeds 0 (off) through 4
-(boost).
+`speed_count`. The Sirius API uses integer speeds 0 (off) up to a per-device
+maximum (typically 4 = boost), reported as the `device.fanSpeed` maximum in
+`GET /devices/`.
 
-**Decision**: Map speeds to percentages linearly:
-| Speed | Value | Percentage |
-|-------|-------|------------|
-| Off | 0 | 0 |
-| Low | 1 | 25 |
-| Medium | 2 | 50 |
-| High | 3 | 75 |
-| Boost | 4 | 100 |
+**Decision**: Derive the range from the device's own `device.fanSpeed` bounds
+and map linearly:
+- `speed_count` = the advertised maximum (falls back to `FAN_SPEED_BOOST`, 4).
+- `percentage` = `round(speed * 100 / speed_count)`.
+- `async_set_percentage(p)` sends `round(p * speed_count / 100)`.
 
-`speed_count = 5` (HA counts non-off presets, so this is 4 + 1 for off).
-
-`async_set_percentage` uses nearest-match: `min(PERCENTAGE_TO_SPEED.items(),
-key=lambda x: abs(x[0] - percentage))`. Setting 10% lands on speed 0 (off);
-setting 37% lands on speed 1 (low); etc.
+For the common 0-4 range this yields the 0/25/50/75/100 % mapping.
 
 **Consequences**:
-- User sees a 5-step slider in the HA UI.
-- Percentage and speed always round-trip cleanly (bijection).
+- The slider always matches the device's real number of speeds.
+- Percentage and speed round-trip cleanly; off is percentage 0.
 
 ---
 
@@ -292,7 +288,11 @@ hammering the Sirius broker during a cloud outage. (`paho-mqtt`'s own
 
 **Decision**: The MQTT task reconnects in a loop, doubling the delay from
 **1 s up to a 120 s cap** after each failure (`aiomqtt.MqttError`), and
-re-subscribes to every device topic on each successful reconnect.
+re-subscribes to every device topic on each successful reconnect. A CONNACK
+that rejects the credentials (return code 4/5) is not retried: the loop stops
+and the auth callback asks the coordinator to start reauth. Retained messages
+are ignored, the client pins MQTT v3.1.1, and the incoming queue is bounded
+(`max_queued_incoming_messages=256`).
 
 ```python
 delay = 1
@@ -302,7 +302,10 @@ while True:
             subscribe(...)  # (re)subscribe on every connect
             async for message in client.messages:
                 ...
-    except aiomqtt.MqttError:
+    except aiomqtt.MqttError as err:
+        if isinstance(err, aiomqtt.MqttCodeError) and err.rc in (4, 5):
+            auth_callback()  # start reauth
+            return
         await asyncio.sleep(delay)
         delay = min(delay * 2, 120)
 ```
@@ -310,6 +313,7 @@ while True:
 **Consequences**:
 - No unnecessary load on the Sirius broker during outages.
 - Reconnection is automatic (within the task) — no external logic needed.
+- A credential rejection surfaces as reauth instead of an endless retry loop.
 - The component continues to work via the HTTP `getStatus` heartbeat while
   MQTT is disconnected (coordinator fallback).
 
@@ -332,21 +336,18 @@ while True:
   `{"timestamp": ..., "status": 0}`; `status: 0` means success and a
   non-zero status means the device rejected the command.
 
-**Decision**: Subscribe to `/status` **and** `/response/#` per device. The
-HTTP 200 remains the primary gate for "the command was accepted", but the
-response topic lets the integration confirm the device actually processed
-it and surface failures. `SiriusMQTT` keeps pending `requestId`s (one
-`asyncio.Future` each) and resolves the matching waiter when the response
-arrives.
-
-Acknowledgements are advisory, never blocking:
-- a non-zero `status` is logged as a warning;
-- if no acknowledgement arrives within `RESPONSE_TIMEOUT` (5 s) the result
-  is **inconclusive**, not a failure — the device may simply be slow — and
-  is logged at debug with the elapsed time.
+**Decision**: Subscribe to `/status` **and** `/response/#` per device. A
+command is only sent while MQTT is connected, and its values are validated
+against the device's limits and writable capabilities first. Both HTTP 200
+and a `status: 0` acknowledgement are required; a missing acknowledgement
+(within `RESPONSE_TIMEOUT`, 5 s) or a non-zero `status` raises
+`HomeAssistantError`, because the result is otherwise unknown. `SiriusMQTT`
+keeps pending `requestId`s (one `asyncio.Future` each) and resolves the
+matching waiter when the response arrives.
 
 **Consequences**:
-- Command outcome is observable (delivered + processed vs delivered only).
+- Command outcome is observable (delivered + processed); failures surface as
+  errors rather than being silently logged.
 - The response payload and elapsed time are logged at debug, which also
   helps diagnose slow or misbehaving devices.
 - A response with no waiter (e.g. a stale or foreign `requestId`) is

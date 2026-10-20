@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -22,6 +24,16 @@ from custom_components.pga_rangehood_custom.const import (
     LEGACY_CONF_ENDPOINT,
     LEGACY_CONF_MQTTS_ENDPOINT,
 )
+
+
+@pytest.fixture(autouse=True)
+def _stub_status_refresh(monkeypatch) -> None:
+    """Skip the fresh-state wait during setup tests."""
+    monkeypatch.setattr(
+        sirius.SiriusRangehoodCoordinator,
+        "_async_refresh_device",
+        AsyncMock(return_value=True),
+    )
 
 
 class _FakeHub:

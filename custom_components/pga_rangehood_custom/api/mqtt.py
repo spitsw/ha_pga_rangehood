@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 StatusCallback = Callable[[str, dict[str, Any]], None]  # device_id, payload
 ConnectionCallback = Callable[[bool], None]  # connected
+AuthCallback = Callable[[], None]  # broker rejected the credentials
 
 _TOPIC_ERRORS = (ValueError, IndexError)
 _JSON_ERRORS = (json.JSONDecodeError, UnicodeDecodeError)
@@ -31,6 +32,10 @@ _JSON_ERRORS = (json.JSONDecodeError, UnicodeDecodeError)
 _RECONNECT_MIN_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 120.0
 _CONNECT_TIMEOUT = 10.0
+_MAX_QUEUED_MESSAGES = 256
+
+# MQTT CONNACK return codes that mean the broker rejected the credentials.
+_AUTH_ERROR_CODES = (4, 5)
 
 # Seconds to wait for a command acknowledgement on the response topic. A
 # timeout is inconclusive, not a failure: the device may simply be slow.
@@ -83,6 +88,7 @@ class SiriusMQTT:
         status_callback: StatusCallback | None = None,
         *,
         connection_callback: ConnectionCallback | None = None,
+        auth_callback: AuthCallback | None = None,
         identifier: str | None = None,
         tenant: str = SIRIUS_MQTT_TENANT,
     ) -> None:
@@ -92,6 +98,7 @@ class SiriusMQTT:
         self._password = password
         self._status_callback = status_callback
         self._connection_callback = connection_callback
+        self._auth_callback = auth_callback
         self._identifier = identifier
         self._tenant = tenant
 
@@ -133,6 +140,8 @@ class SiriusMQTT:
             tls_context=context,
             keepalive=self._KEEPALIVE,
             identifier=self._identifier,
+            protocol=aiomqtt.ProtocolVersion.V311,
+            max_queued_incoming_messages=_MAX_QUEUED_MESSAGES,
         )
 
     async def async_start(self) -> bool:
@@ -185,6 +194,18 @@ class SiriusMQTT:
                         self._handle_message(message)
             except aiomqtt.MqttError as err:
                 self._set_connected(connected=False)
+                if (
+                    isinstance(err, aiomqtt.MqttCodeError)
+                    and err.rc in _AUTH_ERROR_CODES
+                ):
+                    _LOGGER.warning(
+                        "MQTT broker %s rejected the credentials (%s); reauth needed",
+                        self._host,
+                        err,
+                    )
+                    if self._auth_callback is not None:
+                        self._auth_callback()
+                    return
                 _LOGGER.warning(
                     "MQTT connection to %s lost (%s); retrying in %.0fs",
                     self._host,
@@ -206,6 +227,8 @@ class SiriusMQTT:
 
     def _handle_message(self, message: aiomqtt.Message) -> None:
         """Route a message: responses resolve waiters, status updates forward."""
+        if message.retain:
+            return
         topic = message.topic.value
         try:
             raw = json.loads(message.payload.decode("utf-8"))

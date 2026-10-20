@@ -43,24 +43,32 @@ CAP_LIGHT2_COLOR_TEMP = "device.light2ColorTemperature"
 CAP_LIGHT2_POWER = "device.light2Power"
 CAP_FAN_POWER = "device.fanPower"
 CAP_HOOD_POWER = "device.hoodPower"
+CAP_FAN_FLOW = "device.fanFlow"
+CAP_CLEAN_AIR_ENABLED = "device.cleanAirEnabled"
 
-# Fan speed: API uses 0-4 (off, low, med, high, boost)
+# Capabilities the integration is permitted to write via setValue.
+WRITABLE_CAPABILITIES = frozenset(
+    {
+        CAP_POWER,
+        CAP_FAN_SPEED,
+        CAP_LIGHT_ONOFF,
+        CAP_LIGHT_BRIGHTNESS,
+        CAP_LIGHT_COLOR_TEMP,
+        CAP_LIGHT2_ONOFF,
+        CAP_LIGHT2_BRIGHTNESS,
+        CAP_LIGHT2_COLOR_TEMP,
+        CAP_BI_POWER_ENABLED,
+        CAP_CLEAN_AIR_ENABLED,
+        CAP_TIMER_ACTIVE,
+        CAP_TIMER_VALUE,
+        CAP_FILTER_WORN,
+    }
+)
+
+# Fan speed values; the range is taken from each device's limits at runtime.
 FAN_SPEED_OFF = 0
 FAN_SPEED_LOW = 1
-FAN_SPEED_MEDIUM = 2
-FAN_SPEED_HIGH = 3
 FAN_SPEED_BOOST = 4
-FAN_SPEED_COUNT = 5
-
-# Percentage mapping for 5 speeds
-SPEED_TO_PERCENTAGE = {
-    FAN_SPEED_OFF: 0,
-    FAN_SPEED_LOW: 25,
-    FAN_SPEED_MEDIUM: 50,
-    FAN_SPEED_HIGH: 75,
-    FAN_SPEED_BOOST: 100,
-}
-PERCENTAGE_TO_SPEED = {v: k for k, v in SPEED_TO_PERCENTAGE.items()}
 
 # Light brightness: API range 10-100 percent
 LIGHT_BRIGHTNESS_MIN = 10
