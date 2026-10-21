@@ -1,6 +1,52 @@
 # CHANGELOG
 
 
+## v1.4.0 (2026-10-21)
+
+### Bug Fixes
+
+- Baseline the config-entry version at 2
+  ([`a02b715`](https://github.com/spitsw/ha_pga_rangehood/commit/a02b7159343a5a2e2054c62c8c6f6e24f25d4396))
+
+- Correct device labelling and make the setup menu translatable
+  ([`739710c`](https://github.com/spitsw/ha_pga_rangehood/commit/739710cd1242b8e8a2f476fb4579a84565302b5b))
+
+- Harden the MQTT client lifecycle and surface failures
+  ([`7478554`](https://github.com/spitsw/ha_pga_rangehood/commit/7478554cf61993a88a473f8d1e02b41e59bd74a2))
+
+- Import the platform modules off the event loop
+  ([`09b1f94`](https://github.com/spitsw/ha_pga_rangehood/commit/09b1f94a8d9765211b3c8ad02c48ad0a277e82c9))
+
+### Chores
+
+- **deps**: Update dependency python to 3.15
+  ([`fef8b6c`](https://github.com/spitsw/ha_pga_rangehood/commit/fef8b6ca43529912cf50bca6dc2d0b2619f95dc8))
+
+- **deps**: Update dependency ruff to v0.17.1
+  ([`11efb24`](https://github.com/spitsw/ha_pga_rangehood/commit/11efb249ccb2fe452b50837b7fd141354b542dd5))
+
+### Documentation
+
+- Correct the MQTT TLS description
+  ([`5049d0b`](https://github.com/spitsw/ha_pga_rangehood/commit/5049d0b6586d515016f934c2383c3e83647d5018))
+
+- Lead the HACS install with a search
+  ([`e56fb6d`](https://github.com/spitsw/ha_pga_rangehood/commit/e56fb6dc20119b89c449ba992f4eac675648a1bd))
+
+### Features
+
+- Capability-driven entities with confirmed, fresh MQTT state
+  ([`99032c9`](https://github.com/spitsw/ha_pga_rangehood/commit/99032c9580440f56c54e79b733625526af64c876))
+
+### Refactoring
+
+- Name the shared classes after the platform, not the brand
+  ([`a69b0d2`](https://github.com/spitsw/ha_pga_rangehood/commit/a69b0d22119461ece11e0b705febba2e171506a0))
+
+- Simplify the entity layer and the sensor definitions
+  ([`31c80fc`](https://github.com/spitsw/ha_pga_rangehood/commit/31c80fca3f55839efceb924608f46335a01b83a2))
+
+
 ## v1.3.0 (2026-10-13)
 
 

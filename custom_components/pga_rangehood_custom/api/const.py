@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Warren Spits
 """Constants for the PGA rangehood API layer."""
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 
 # API endpoints
 API_LOGIN = "/users/login"
