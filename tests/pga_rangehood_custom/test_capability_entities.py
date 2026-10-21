@@ -181,6 +181,11 @@ class TestCleanAirSwitch:
         )
         assert switch.is_on is True
 
+    def test_unique_id_uses_the_class_suffix(self) -> None:
+        """The unique id is the device key plus the class's own suffix."""
+        switch = SiriusRangehoodCleanAirSwitch(_coordinator(), "dev1", _device())
+        assert switch.unique_id == "dev1_clean_air"
+
     async def test_gated_by_capability(self, hass) -> None:
         """The switch appears only when the capability is advertised."""
         add = MagicMock()

@@ -42,6 +42,8 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
         | FanEntityFeature.TURN_OFF
     )
 
+    _unique_suffix = "fan"
+
     def __init__(
         self,
         coordinator: SiriusRangehoodCoordinator,
@@ -49,7 +51,7 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
         device: dict[str, Any],
     ) -> None:
         """Initialize the fan entity and its speed range."""
-        super().__init__(coordinator, device_id, device, unique_suffix="fan")
+        super().__init__(coordinator, device_id, device)
         bounds = device.get("_limits", {}).get(CAP_FAN_SPEED)
         max_speed = int(bounds["max"]) if bounds else FAN_SPEED_OFF
         self._max_speed = max_speed if max_speed >= FAN_SPEED_LOW else FAN_SPEED_BOOST
@@ -58,18 +60,16 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True when the fan is running (speed greater than 0)."""
-        state = self._get_device_state()
-        speed = state.get(CAP_FAN_SPEED, FAN_SPEED_OFF)
-        return isinstance(speed, (int, float)) and speed > 0
+        speed = self._get_float(CAP_FAN_SPEED)
+        return speed is not None and speed > 0
 
     @property
     def percentage(self) -> int | None:
         """Return the current fan speed as a percentage of the device range."""
-        state = self._get_device_state()
-        speed = state.get(CAP_FAN_SPEED, FAN_SPEED_OFF)
-        if isinstance(speed, (int, float)):
-            return round(int(speed) * 100 / self._max_speed)
-        return None
+        speed = self._get_float(CAP_FAN_SPEED)
+        if speed is None:
+            return None
+        return round(int(speed) * 100 / self._max_speed)
 
     async def async_set_percentage(self, percentage: int) -> None:
         """Set the fan speed from a percentage of the device range."""

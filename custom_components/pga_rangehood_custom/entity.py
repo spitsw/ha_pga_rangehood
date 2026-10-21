@@ -68,6 +68,10 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
 
     _attr_has_entity_name = True
 
+    # Unique-id suffix, set by each entity class; `SiriusRangehoodSensor` sets it
+    # per instance instead, because one class serves several sensor keys.
+    _unique_suffix: str
+
     _device_id: str
 
     def __init__(
@@ -75,13 +79,11 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         coordinator: SiriusRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
-        *,
-        unique_suffix: str,
     ) -> None:
         """Initialize the entity, its unique id, and its device registry entry."""
         super().__init__(coordinator)
         self._device_id = device_id
-        self._attr_unique_id = f"{device_id}_{unique_suffix}"
+        self._attr_unique_id = f"{device_id}_{self._unique_suffix}"
         self._attr_device_info = sirius_device_info(
             device_id,
             device,
@@ -98,6 +100,16 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
     def _get_device_state(self) -> dict[str, Any]:
         """Return latest device state from the coordinator."""
         return self.coordinator.data.get(self._device_id, {})
+
+    def _get_bool(self, capability: str) -> bool | None:
+        """Return a boolean capability, or None while it is unreported."""
+        value = self._get_device_state().get(capability)
+        return None if value is None else bool(value)
+
+    def _get_float(self, capability: str) -> float | None:
+        """Return a numeric capability as a float, or None when unreported."""
+        value = self._get_device_state().get(capability)
+        return float(value) if isinstance(value, (int, float)) else None
 
     async def _async_send_command(self, params: list[dict[str, Any]]) -> None:
         """Send a setValue command, confirming it via the MQTT response topic."""

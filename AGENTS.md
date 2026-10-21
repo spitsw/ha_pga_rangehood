@@ -150,7 +150,8 @@ Reconnection is the task's own exponential-backoff loop (ADR-10).
 `async_setup_entry` in `__init__.py` forwards to `PLATFORMS` and stores a
 `SiriusRangehoodData` dataclass on `entry.runtime_data`. Each platform file
 follows the same shape: an `async_setup_entry` that reads `entry.runtime_data`
-and constructs entities from `(coordinator, did, device, entry)`.
+and constructs entities from `(coordinator, did, device)` (sensors add their
+`SensorEntityDescription`).
 
 | File | Entities |
 |------|----------|
@@ -169,8 +170,14 @@ and constructs entities from `(coordinator, did, device, entry)`.
   docstring; `_LOGGER = logging.getLogger(__name__)`.
 - Full type hints. HA style: `_attr_*` class attributes over `@property` where
   possible; base classes use `@property` for state derived from the coordinator.
-- `_attr_unique_id` is `f"{device_id}_{suffix}"`; `_attr_device_info` comes
-  from `sirius_device_info(device_id, device)` in `entity.py`.
+- `SiriusEntity` builds `_attr_unique_id` as
+  `f"{device_id}_{self._unique_suffix}"` and `_attr_device_info` from
+  `sirius_device_info(device_id, device)` in `entity.py`. Subclasses set
+  `_unique_suffix` as a class attribute rather than defining an `__init__`;
+  `SiriusRangehoodSensor` sets it per instance, because one class covers every
+  sensor description.
+- Read device state through `_get_device_state()`, and prefer the tri-state
+  `_get_bool` / `_get_float` helpers over open-coding an `is None` check.
 - Device state keys are the raw API `property.*` / `device.*` strings defined
   as `PROP_*` / `CAP_*` in `api/const.py`. Prefer those constants over literals.
 - User-facing names are localized via `translation_key` (not `name`) for most

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.text import TextEntity, TextMode
 from homeassistant.const import EntityCategory
@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
     from .data import SiriusRangehoodConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,14 +45,7 @@ class SiriusRangehoodDeviceName(SiriusEntity, TextEntity):
     _attr_mode = TextMode.TEXT
     _attr_native_min = 1
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the device name entity."""
-        super().__init__(coordinator, device_id, device, unique_suffix="device_name")
+    _unique_suffix = "device_name"
 
     @property
     def native_value(self) -> str | None:

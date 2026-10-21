@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
     from .data import SiriusRangehoodConfigEntry
 
 
@@ -51,23 +50,12 @@ class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
 
     _attr_translation_key = "power"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the global power switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="power")
+    _unique_suffix = "power"
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the device is powered on."""
-        state = self._get_device_state()
-        val = state.get(CAP_POWER)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(CAP_POWER)
 
     @property
     def icon(self) -> str:
@@ -89,26 +77,11 @@ class SiriusRangehoodCapabilitySwitch(SiriusEntity, SwitchEntity):
     _attr_device_class = SwitchDeviceClass.SWITCH
 
     _cap: ClassVar[str]
-    _unique_suffix: ClassVar[str]
-
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the capability switch."""
-        super().__init__(
-            coordinator, device_id, device, unique_suffix=self._unique_suffix
-        )
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the capability is enabled."""
-        val = self._get_device_state().get(self._cap)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(self._cap)
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # noqa: ARG002
         """Enable the capability."""
@@ -142,23 +115,12 @@ class SiriusRangehoodTimerSwitch(SiriusEntity, SwitchEntity):
 
     _attr_translation_key = "timer_active"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the timer active switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="timer_active")
+    _unique_suffix = "timer_active"
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the countdown timer is running."""
-        state = self._get_device_state()
-        val = state.get(CAP_TIMER_ACTIVE)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(CAP_TIMER_ACTIVE)
 
     @property
     def available(self) -> bool:

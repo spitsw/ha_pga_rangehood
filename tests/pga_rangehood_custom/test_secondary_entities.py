@@ -212,6 +212,16 @@ class TestPowerSensors:
         assert entity.entity_description.native_unit_of_measurement == "W"
         assert entity.entity_description.device_class is SensorDeviceClass.POWER
 
+    def test_unique_id_comes_from_the_description(self) -> None:
+        """One sensor class gives each description its own unique id."""
+        entity = SiriusRangehoodSensor(
+            _coordinator({}),
+            "dev1",
+            _device(),
+            _power_description(CAP_FAN_POWER),
+        )
+        assert entity.unique_id == f"dev1_{CAP_FAN_POWER}"
+
     def test_secondary_light_power_reads_watts(self) -> None:
         """device.light2Power is reported in Watts."""
         entity = SiriusRangehoodSensor(

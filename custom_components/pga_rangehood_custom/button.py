@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
 
@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
     from .data import SiriusRangehoodConfigEntry
 
 
@@ -37,16 +36,7 @@ class SiriusRangehoodFilterResetButton(SiriusEntity, ButtonEntity):
 
     _attr_translation_key = "reset_filter_worn"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the filter-worn reset button."""
-        super().__init__(
-            coordinator, device_id, device, unique_suffix="reset_filter_worn"
-        )
+    _unique_suffix = "reset_filter_worn"
 
     async def async_press(self) -> None:
         """Clear the filter-worn flag, resetting the filter clean countdown."""

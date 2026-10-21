@@ -39,6 +39,8 @@ class SiriusRangehoodTimer(SiriusEntity, NumberEntity):
     _attr_native_unit_of_measurement = "s"
     _attr_mode = NumberMode.AUTO
 
+    _unique_suffix = "timer"
+
     def __init__(
         self,
         coordinator: SiriusRangehoodCoordinator,
@@ -46,7 +48,7 @@ class SiriusRangehoodTimer(SiriusEntity, NumberEntity):
         device: dict[str, Any],
     ) -> None:
         """Initialize the timer duration entity."""
-        super().__init__(coordinator, device_id, device, unique_suffix="timer")
+        super().__init__(coordinator, device_id, device)
 
         limits = device.get("_limits", {}).get(CAP_TIMER_VALUE, {})
         self._attr_native_min_value = limits.get("min", 0) if limits else 0
@@ -56,11 +58,7 @@ class SiriusRangehoodTimer(SiriusEntity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the configured timer duration in seconds."""
-        state = self._get_device_state()
-        val = state.get(CAP_TIMER_VALUE)
-        if val is not None:
-            return float(val)
-        return None
+        return self._get_float(CAP_TIMER_VALUE)
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the timer duration in seconds."""

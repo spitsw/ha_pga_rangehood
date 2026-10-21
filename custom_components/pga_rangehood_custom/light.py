@@ -72,9 +72,7 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
         device: dict[str, Any],
     ) -> None:
         """Initialize the light entity from the device's colour capabilities."""
-        super().__init__(
-            coordinator, device_id, device, unique_suffix=self._unique_suffix
-        )
+        super().__init__(coordinator, device_id, device)
         limits = device.get("_limits", {})
         self._brightness_min = LIGHT_BRIGHTNESS_MIN
         self._brightness_max = LIGHT_BRIGHTNESS_MAX
@@ -100,32 +98,25 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True when the light is on."""
-        state = self._get_device_state()
-        val = state.get(self._cap_onoff)
-        return bool(val) if val is not None else None
+        return self._get_bool(self._cap_onoff)
 
     @property
     def brightness(self) -> int | None:
         """Return the light brightness on the Home Assistant 0-255 scale."""
-        state = self._get_device_state()
-        val = state.get(self._cap_brightness)
-        if val is not None:
-            pct = float(val)
-            pct = max(self._brightness_min, min(self._brightness_max, pct))
-            normalized = (pct - self._brightness_min) / (
-                self._brightness_max - self._brightness_min
-            )
-            return round(normalized * 255)
-        return None
+        pct = self._get_float(self._cap_brightness)
+        if pct is None:
+            return None
+        pct = max(self._brightness_min, min(self._brightness_max, pct))
+        normalized = (pct - self._brightness_min) / (
+            self._brightness_max - self._brightness_min
+        )
+        return round(normalized * 255)
 
     @property
     def color_temp_kelvin(self) -> int | None:
         """Return the light colour temperature in Kelvin."""
-        state = self._get_device_state()
-        val = state.get(self._cap_color_temp)
-        if val is not None:
-            return round(float(val))
-        return None
+        value = self._get_float(self._cap_color_temp)
+        return None if value is None else round(value)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the light on, applying brightness and colour temperature if given."""

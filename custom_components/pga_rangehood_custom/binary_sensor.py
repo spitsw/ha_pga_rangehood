@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
     from .data import SiriusRangehoodConfigEntry
 
 
@@ -46,25 +45,10 @@ class SiriusRangehoodFilterWorn(SiriusEntity, BinarySensorEntity):
     _cap_worn = CAP_FILTER_WORN
     _unique_suffix = "filter_worn"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the filter-worn binary sensor."""
-        super().__init__(
-            coordinator, device_id, device, unique_suffix=self._unique_suffix
-        )
-
     @property
     def is_on(self) -> bool | None:
         """Return True when the filter needs cleaning."""
-        state = self._get_device_state()
-        val = state.get(self._cap_worn)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(self._cap_worn)
 
     @property
     def icon(self) -> str:
