@@ -20,6 +20,7 @@ from custom_components.pga_rangehood_custom.const import (
     CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTTS_ENDPOINT,
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
 )
 
@@ -94,6 +95,7 @@ async def test_setup_and_unload(hass, monkeypatch) -> None:
 
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=CONFIG_ENTRY_VERSION,
         data={
             CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
             CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
@@ -121,6 +123,7 @@ async def test_device_state_shares_discovery_dict(hass, monkeypatch) -> None:
 
     entry = MockConfigEntry(
         domain=DOMAIN,
+        version=CONFIG_ENTRY_VERSION,
         data={
             CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
             CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,

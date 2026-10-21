@@ -18,6 +18,7 @@ from .const import (
     CONF_MQTT_TENANT,
     CONF_MQTTS_ENDPOINT,
     CONF_PROVIDER,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_PROVIDER,
     DOMAIN,
     PROVIDER_CUSTOM,
@@ -99,7 +100,7 @@ async def _try_discover_devices(
 class PgaRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for PGA rangehood."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
 
     _user_input: dict[str, Any]
     _config: dict[str, Any]

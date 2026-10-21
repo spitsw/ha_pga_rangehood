@@ -183,6 +183,10 @@ and constructs entities from `(coordinator, did, device)` (sensors add their
 - User-facing names are localized via `translation_key` (not `name`) for most
   entities; keep `strings.json` and `translations/en.json` in sync.
 - `VERSION` lives in two places: `api/const.py` and `manifest.json`.
+- `PgaRangehoodConfigFlow.VERSION` comes from `CONFIG_ENTRY_VERSION` in
+  `const.py` and must **never decrease**: entries written by 1.2.0 and later are
+  at version 2, and Home Assistant refuses to load an entry whose stored version
+  is higher than the flow's, which leaves an existing install unable to start.
 
 ## Non-obvious gotchas
 

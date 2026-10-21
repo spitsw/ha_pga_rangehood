@@ -22,6 +22,7 @@ from custom_components.pga_rangehood_custom.const import (
     CONF_MQTT_TENANT,
     CONF_MQTTS_ENDPOINT,
     CONF_PROVIDER,
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
     PROVIDER_PANDO,
     PROVIDER_SIRIUS,
@@ -236,3 +237,12 @@ async def test_endpoints_step_validates_input(hass) -> None:
         },
     )
     assert result["step_id"] == "credentials"
+
+
+class TestConfigEntryVersion:
+    """Verify the config-entry schema version only ever moves forward."""
+
+    def test_matches_the_released_version(self) -> None:
+        """1.2.0 and 1.3.0 stored entries at version 2, so going lower bricks them."""
+        assert CONFIG_ENTRY_VERSION >= 2
+        assert cf.PgaRangehoodConfigFlow.VERSION == CONFIG_ENTRY_VERSION

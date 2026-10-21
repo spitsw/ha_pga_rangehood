@@ -24,6 +24,12 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"  # noqa: S105
 CONF_INSECURE_TLS = "insecure_tls"
 
+# Config-entry schema version, and the baseline: version 1 was never in the
+# field, so there is no v1 -> v2 migration and entries are simply written at 2.
+# Never lower it, Home Assistant refuses to load an entry whose stored version is
+# higher than the flow's, which leaves an existing install unable to start.
+CONFIG_ENTRY_VERSION = 2
+
 # Provider choices offered during setup.
 PROVIDER_SIRIUS = "sirius"
 PROVIDER_PANDO = "pando"
