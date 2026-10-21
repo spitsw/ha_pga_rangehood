@@ -64,11 +64,9 @@ async def async_get_config_entry_diagnostics(
             ),
         },
         "mqtt": {
-            "connected": mqtt.connected if mqtt else False,
-            "host": mqtt.host if mqtt else None,
-        }
-        if mqtt
-        else None,
+            "connected": mqtt.connected,
+            "host": mqtt.host,
+        },
     }
     return async_redact_data(diagnostics, TO_REDACT)
 

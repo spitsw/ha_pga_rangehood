@@ -19,6 +19,10 @@ class TestManufacturerForProvider:
     def test_pando(self) -> None:
         assert manufacturer_for_provider(PROVIDER_PANDO) == "Pando"
 
-    def test_unknown_falls_back_to_sirius(self) -> None:
-        assert manufacturer_for_provider(PROVIDER_CUSTOM) == "Sirius"
-        assert manufacturer_for_provider("mystery") == "Sirius"
+    def test_unknown_uses_endpoint_host(self) -> None:
+        """An unknown provider is labelled by its endpoint host."""
+        assert (
+            manufacturer_for_provider(PROVIDER_CUSTOM, "https://custom.example.com")
+            == "custom.example.com"
+        )
+        assert manufacturer_for_provider("mystery") == "Rangehood"

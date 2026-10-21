@@ -64,8 +64,8 @@ class _FakeHub:
     async def async_ensure_token(self, *, retry: bool = True) -> str:
         return "token"
 
-    async def async_get_status(self, _device_id: str) -> bool:
-        return True
+    async def async_get_status(self, _device_id: str) -> CommandResult:
+        return CommandResult(accepted=True, request_id="test")
 
     async def async_send_command(self, _device_id: str, _params: Any) -> CommandResult:
         return CommandResult(accepted=True, request_id="test")

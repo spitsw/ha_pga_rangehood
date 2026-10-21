@@ -205,16 +205,9 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.source == "reauth":
             return await self.async_step_credentials(user_input)
 
-        login_options = {
-            provider: f"Log in to {preset.name}"
-            for provider, preset in PROVIDERS.items()
-        }
         return self.async_show_menu(
             step_id="user",
-            menu_options={
-                **login_options,
-                "endpoints": "Configure custom endpoints (advanced)",
-            },
+            menu_options=[PROVIDER_SIRIUS, PROVIDER_PANDO, "endpoints"],
         )
 
     async def async_step_sirius(

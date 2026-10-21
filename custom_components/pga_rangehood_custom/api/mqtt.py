@@ -37,8 +37,8 @@ _MAX_QUEUED_MESSAGES = 256
 # MQTT CONNACK return codes that mean the broker rejected the credentials.
 _AUTH_ERROR_CODES = (4, 5)
 
-# Seconds to wait for a command acknowledgement on the response topic. A
-# timeout is inconclusive, not a failure: the device may simply be slow.
+# Seconds to wait for a command acknowledgement on the response topic. The
+# caller decides what a missing acknowledgement means (the coordinator raises).
 RESPONSE_TIMEOUT = 5.0
 
 # OpenSSL X509_V_FLAG_NO_CHECK_TIME (not exposed by Python's `ssl`). It disables
@@ -278,8 +278,8 @@ class SiriusMQTT:
         Wait for the broker's acknowledgement of *request_id*.
 
         Returns the parsed response payload, or None when no acknowledgement
-        arrived within *timeout* seconds. A timeout is inconclusive, not a
-        failure: the device may still be processing the command.
+        arrived within *timeout* seconds; the caller decides whether that is a
+        failure.
         """
         loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()

@@ -23,7 +23,9 @@ from custom_components.pga_rangehood_custom.coordinator import (
 def fake_hub() -> MagicMock:
     """Return a hub mock whose heartbeat requests always succeed."""
     hub = MagicMock()
-    hub.async_get_status = AsyncMock(return_value=True)
+    hub.async_get_status = AsyncMock(
+        return_value=CommandResult(accepted=True, request_id="rid")
+    )
     return hub
 
 
@@ -188,10 +190,10 @@ async def test_update_data_returns_fresh_state(hass, fake_hub, fake_entry) -> No
     coordinator = SiriusRangehoodCoordinator(hass, fake_entry, fake_hub, {"dev1": {}})
     coordinator.set_mqtt_connected(True)
 
-    async def get_status(device_id: str) -> bool:
+    async def get_status(device_id: str) -> CommandResult:
         # The device pushes its status in response to getStatus.
         coordinator.apply_mqtt_update(device_id, {"device.onOff": 1})
-        return True
+        return CommandResult(accepted=True, request_id="rid")
 
     fake_hub.async_get_status = AsyncMock(side_effect=get_status)
 

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -18,16 +18,13 @@ if TYPE_CHECKING:
 
     from .data import SiriusRangehoodConfigEntry
 
-_LOGGER = logging.getLogger(__name__)
 
-# Unknown providers (e.g. custom endpoints) fall back to the namesake brand.
-_DEFAULT_MANUFACTURER = "Sirius"
-
-
-def manufacturer_for_provider(provider: str) -> str:
+def manufacturer_for_provider(provider: str, endpoint: str = "") -> str:
     """Return the device-registry manufacturer name for a provider."""
-    known = PROVIDERS.get(provider)
-    return known.name if known else _DEFAULT_MANUFACTURER
+    if (known := PROVIDERS.get(provider)) is not None:
+        return known.name
+    host = urlparse(endpoint).hostname if isinstance(endpoint, str) else None
+    return host or "Rangehood"
 
 
 def device_key(device: dict[str, Any]) -> str:
@@ -88,7 +85,9 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         self._attr_device_info = sirius_device_info(
             device_id,
             device,
-            manufacturer=manufacturer_for_provider(coordinator.provider),
+            manufacturer=manufacturer_for_provider(
+                coordinator.provider, coordinator.hub.endpoint
+            ),
         )
 
     @property

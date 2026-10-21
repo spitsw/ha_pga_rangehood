@@ -247,13 +247,13 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         fresh = self._fresh[device_id]
         fresh.clear()
         try:
-            accepted = await self._hub.async_get_status(device_id)
+            result = await self._hub.async_get_status(device_id)
         except SiriusAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except Exception:
             _LOGGER.exception("getStatus failed for device %s", device_id)
             return False
-        if not accepted:
+        if not result.accepted:
             _LOGGER.debug("getStatus request not accepted for %s", device_id)
             return False
         try:

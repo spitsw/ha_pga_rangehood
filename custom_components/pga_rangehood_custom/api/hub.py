@@ -59,8 +59,7 @@ async def _run_with_retry[T](
     Await a coroutine, retrying on timeout and transient HTTP errors.
 
     *coro_factory* is a zero-argument callable that returns a coroutine.
-    The first call receives the original timeout; retries use
-    *timeout + (2 ** attempt)* seconds to allow longer recovery.
+    Between attempts it waits ``_RETRY_BASE_DELAY * 2 ** attempt`` seconds.
     """
     last_exc: Exception | None = None
     for attempt in range(retries):
@@ -273,11 +272,11 @@ class SiriusHub:
 
         return flat
 
-    async def async_get_status(self, device_id: str) -> bool:
+    async def async_get_status(self, device_id: str) -> CommandResult:
         """
         Send a getStatus command. Device status arrives asynchronously via MQTT.
 
-        Returns True when the request reached the server.
+        Returns the HTTP outcome and the generated requestId.
         """
         request_id = str(uuid.uuid4())
         _LOGGER.debug("getStatus for device %s (requestId=%s)", device_id, request_id)
@@ -287,7 +286,8 @@ class SiriusHub:
             "parameters": [],
             "requestId": request_id,
         }
-        return await self._post_set_value(device_id, payload)
+        accepted = await self._post_set_value(device_id, payload)
+        return CommandResult(accepted=accepted, request_id=request_id)
 
     async def async_send_command(
         self, device_id: str, parameters: list[dict[str, Any]]

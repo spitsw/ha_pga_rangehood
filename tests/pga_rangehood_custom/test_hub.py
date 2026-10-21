@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from typing import Self
+from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
+import pytest
+
+from custom_components.pga_rangehood_custom.api import hub as hub_module
 from custom_components.pga_rangehood_custom.api.hub import SiriusAuthError, SiriusHub
 
 
@@ -156,8 +161,8 @@ class TestCommandResult:
         assert result.accepted is False
         assert result.request_id
 
-    async def test_get_status_returns_accepted(self) -> None:
-        """getStatus returns the HTTP outcome; its ack is not awaited."""
+    async def test_get_status_returns_request_id(self) -> None:
+        """getStatus returns the HTTP outcome and the generated requestId."""
         hub = SiriusHub.__new__(SiriusHub)
         captured: dict[str, object] = {}
 
@@ -168,9 +173,9 @@ class TestCommandResult:
         hub._post_set_value = fake_post
         result = await hub.async_get_status("dev-1")
 
-        assert result is True
+        assert result.accepted is True
         assert captured["payload"]["command"] == "getStatus"
-        assert captured["payload"]["requestId"]
+        assert captured["payload"]["requestId"] == result.request_id
 
 
 class TestRenameDevice:
@@ -190,3 +195,73 @@ class TestRenameDevice:
         assert url == "https://example.com/devices/uid-1/rename"
         assert payload == {"newName": "New Name"}
         assert hub._post_json.call_args.kwargs["action"] == "rename uid-1"
+
+
+class _FakeResponse:
+    """A stand-in for an aiohttp response: awaitable and an async context manager."""
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_args: object) -> bool:
+        return False
+
+    def __await__(self):
+        if False:  # pragma: no cover - makes this a generator
+            yield
+        return self
+
+
+def _hub(status: int | None, *, raises: type[Exception] | None = None) -> SiriusHub:
+    """Return a hub whose POST either answers *status* or raises *raises*."""
+    hub = SiriusHub.__new__(SiriusHub)
+    hub._session = MagicMock()
+    hub._token = "token"
+    hub._token_expiry = None
+    if raises is not None:
+        hub._session.post = MagicMock(side_effect=raises)
+    else:
+        hub._session.post = MagicMock(return_value=_FakeResponse(status))
+    hub.async_ensure_token = AsyncMock(return_value="token")
+    return hub
+
+
+class TestPostJson:
+    """Verify the low-level POST maps statuses and errors to a bool."""
+
+    async def test_success(self) -> None:
+        """HTTP 200 is accepted."""
+        assert await _hub(200)._post_json("url", {}, action="x") is True
+
+    async def test_non_200_is_rejected(self) -> None:
+        """A non-200 status returns False without raising."""
+        assert await _hub(500)._post_json("url", {}, action="x") is False
+
+    async def test_unauthorized_raises_and_clears_token(self) -> None:
+        """HTTP 401 raises and drops the cached token."""
+        hub = _hub(401)
+        with pytest.raises(SiriusAuthError):
+            await hub._post_json("url", {}, action="x")
+        assert hub._token is None
+        assert hub._token_expiry is None
+
+    async def test_timeout_returns_false(self, monkeypatch) -> None:
+        """Timeout after retries returns False."""
+        monkeypatch.setattr(hub_module, "_RETRY_BASE_DELAY", 0)
+        assert (
+            await _hub(None, raises=TimeoutError)._post_json("url", {}, action="x")
+            is False
+        )
+
+    async def test_client_error_returns_false(self, monkeypatch) -> None:
+        """A connection error after retries returns False."""
+        monkeypatch.setattr(hub_module, "_RETRY_BASE_DELAY", 0)
+        assert (
+            await _hub(None, raises=aiohttp.ClientError)._post_json(
+                "url", {}, action="x"
+            )
+            is False
+        )
