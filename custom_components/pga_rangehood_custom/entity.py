@@ -1,33 +1,30 @@
 # Copyright (c) 2026 Warren Spits
-"""Shared entity base for Sirius Rangehood entities."""
+"""Shared entity base for PGA rangehood entities."""
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import PROP_DEVICE_NAME, PROP_FW_CODE, PROP_FW_VERSION, SiriusAuthError
+from .api import PROP_DEVICE_NAME, PROP_FW_CODE, PROP_FW_VERSION, PgaAuthError
 from .const import DOMAIN, PROVIDERS
-from .coordinator import SiriusRangehoodCoordinator
+from .coordinator import PgaRangehoodCoordinator
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from .data import SiriusRangehoodConfigEntry
-
-_LOGGER = logging.getLogger(__name__)
-
-# Unknown providers (e.g. custom endpoints) fall back to the namesake brand.
-_DEFAULT_MANUFACTURER = "Sirius"
+    from .data import PgaRangehoodConfigEntry
 
 
-def manufacturer_for_provider(provider: str) -> str:
+def manufacturer_for_provider(provider: str, endpoint: str = "") -> str:
     """Return the device-registry manufacturer name for a provider."""
-    known = PROVIDERS.get(provider)
-    return known.name if known else _DEFAULT_MANUFACTURER
+    if (known := PROVIDERS.get(provider)) is not None:
+        return known.name
+    host = urlparse(endpoint).hostname if isinstance(endpoint, str) else None
+    return host or "Rangehood"
 
 
 def device_key(device: dict[str, Any]) -> str:
@@ -36,15 +33,15 @@ def device_key(device: dict[str, Any]) -> str:
 
 
 def iter_devices(
-    entry: SiriusRangehoodConfigEntry,
-) -> Iterator[tuple[SiriusRangehoodCoordinator, str, dict[str, Any]]]:
+    entry: PgaRangehoodConfigEntry,
+) -> Iterator[tuple[PgaRangehoodCoordinator, str, dict[str, Any]]]:
     """Yield (coordinator, device_id, device) for every discovered device."""
     data = entry.runtime_data
     for device in data.devices:
         yield data.coordinator, device_key(device), device
 
 
-def sirius_device_info(
+def pga_device_info(
     device_id: str, device: dict[str, Any], *, manufacturer: str
 ) -> DeviceInfo:
     """Build a DeviceInfo dict for a rangehood device."""
@@ -66,29 +63,33 @@ def sirius_device_info(
     )
 
 
-class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
-    """Base class for Sirius Rangehood entities."""
+class PgaEntity(CoordinatorEntity[PgaRangehoodCoordinator]):
+    """Base class for PGA rangehood entities."""
 
     _attr_has_entity_name = True
+
+    # Unique-id suffix, set by each entity class; `PgaRangehoodSensor` sets it
+    # per instance instead, because one class serves several sensor keys.
+    _unique_suffix: str
 
     _device_id: str
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
-        *,
-        unique_suffix: str,
     ) -> None:
         """Initialize the entity, its unique id, and its device registry entry."""
         super().__init__(coordinator)
         self._device_id = device_id
-        self._attr_unique_id = f"{device_id}_{unique_suffix}"
-        self._attr_device_info = sirius_device_info(
+        self._attr_unique_id = f"{device_id}_{self._unique_suffix}"
+        self._attr_device_info = pga_device_info(
             device_id,
             device,
-            manufacturer=manufacturer_for_provider(coordinator.provider),
+            manufacturer=manufacturer_for_provider(
+                coordinator.provider, coordinator.hub.endpoint
+            ),
         )
 
     @property
@@ -100,17 +101,19 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         """Return latest device state from the coordinator."""
         return self.coordinator.data.get(self._device_id, {})
 
+    def _get_bool(self, capability: str) -> bool | None:
+        """Return a boolean capability, or None while it is unreported."""
+        value = self._get_device_state().get(capability)
+        return None if value is None else bool(value)
+
+    def _get_float(self, capability: str) -> float | None:
+        """Return a numeric capability as a float, or None when unreported."""
+        value = self._get_device_state().get(capability)
+        return float(value) if isinstance(value, (int, float)) else None
+
     async def _async_send_command(self, params: list[dict[str, Any]]) -> None:
-        """Send a setValue command and await its MQTT acknowledgement."""
+        """Send a setValue command, confirming it via the MQTT response topic."""
         try:
-            accepted = await self.coordinator.async_send_command(
-                self._device_id, params
-            )
-        except SiriusAuthError:
+            await self.coordinator.async_send_command(self._device_id, params)
+        except PgaAuthError:
             self.coordinator.request_reauth()
-            return
-        if not accepted:
-            _LOGGER.warning(
-                "Command not acknowledged for %s; the device may still apply it",
-                self._device_id,
-            )

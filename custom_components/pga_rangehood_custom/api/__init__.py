@@ -1,14 +1,16 @@
 # Copyright (c) 2026 Warren Spits
 """
-Sirius Rangehood API client library.
+PGA rangehood API client library.
 
 This package contains all HTTP and MQTT code that communicates with the
-Sirius cloud server.  The HA layer imports what it needs from here and
+provider's cloud API.  The HA layer imports what it needs from here and
 never makes direct API calls.
 """
 
 from .const import (
     CAP_BI_POWER_ENABLED,
+    CAP_CLEAN_AIR_ENABLED,
+    CAP_FAN_FLOW,
     CAP_FAN_POWER,
     CAP_FAN_SPEED,
     CAP_FILTER2_VALUE,
@@ -34,10 +36,7 @@ from .const import (
     DEFAULT_SIRIUS_ENDPOINT,
     DEFAULT_SIRIUS_MQTTS_ENDPOINT,
     FAN_SPEED_BOOST,
-    FAN_SPEED_COUNT,
-    FAN_SPEED_HIGH,
     FAN_SPEED_LOW,
-    FAN_SPEED_MEDIUM,
     FAN_SPEED_OFF,
     GET_STATUS_INTERVAL,
     LIGHT_BRIGHTNESS_MAX,
@@ -45,7 +44,6 @@ from .const import (
     LIGHT_COLOR_TEMP_KELVIN_MAX,
     LIGHT_COLOR_TEMP_KELVIN_MIN,
     PANDO_MQTT_TENANT,
-    PERCENTAGE_TO_SPEED,
     PROP_DEVICE_CLASS,
     PROP_DEVICE_NAME,
     PROP_DEVICE_REF,
@@ -57,14 +55,16 @@ from .const import (
     PROP_SECURE_ID,
     PROP_SSID,
     SIRIUS_MQTT_TENANT,
-    SPEED_TO_PERCENTAGE,
+    WRITABLE_CAPABILITIES,
 )
-from .hub import CommandResult, SiriusAuthError, SiriusHub
-from .mqtt import RESPONSE_TIMEOUT, SiriusMQTT
+from .hub import CommandResult, PgaAuthError, PgaHub
+from .mqtt import RESPONSE_TIMEOUT, PgaMQTT
 
 __all__ = [
     "CAP_BI_POWER_ENABLED",
     # Constants
+    "CAP_CLEAN_AIR_ENABLED",
+    "CAP_FAN_FLOW",
     "CAP_FAN_POWER",
     "CAP_FAN_SPEED",
     "CAP_FILTER2_VALUE",
@@ -90,10 +90,7 @@ __all__ = [
     "DEFAULT_SIRIUS_ENDPOINT",
     "DEFAULT_SIRIUS_MQTTS_ENDPOINT",
     "FAN_SPEED_BOOST",
-    "FAN_SPEED_COUNT",
-    "FAN_SPEED_HIGH",
     "FAN_SPEED_LOW",
-    "FAN_SPEED_MEDIUM",
     "FAN_SPEED_OFF",
     "GET_STATUS_INTERVAL",
     "LIGHT_BRIGHTNESS_MAX",
@@ -101,7 +98,6 @@ __all__ = [
     "LIGHT_COLOR_TEMP_KELVIN_MAX",
     "LIGHT_COLOR_TEMP_KELVIN_MIN",
     "PANDO_MQTT_TENANT",
-    "PERCENTAGE_TO_SPEED",
     "PROP_DEVICE_CLASS",
     "PROP_DEVICE_NAME",
     "PROP_DEVICE_REF",
@@ -114,9 +110,9 @@ __all__ = [
     "PROP_SSID",
     "RESPONSE_TIMEOUT",
     "SIRIUS_MQTT_TENANT",
-    "SPEED_TO_PERCENTAGE",
+    "WRITABLE_CAPABILITIES",
     "CommandResult",
-    "SiriusAuthError",
-    "SiriusHub",
-    "SiriusMQTT",
+    "PgaAuthError",
+    "PgaHub",
+    "PgaMQTT",
 ]

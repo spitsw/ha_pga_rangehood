@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Integration setup for Sirius Rangehood."""
+"""Integration setup for PGA rangehoods."""
 
 from __future__ import annotations
 
@@ -13,25 +13,22 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
-from .api import SIRIUS_MQTT_TENANT, SiriusAuthError, SiriusHub, SiriusMQTT
+from .api import SIRIUS_MQTT_TENANT, PgaAuthError, PgaHub, PgaMQTT
 from .const import (
     CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
     CONF_MQTTS_ENDPOINT,
-    CONFIG_ENTRY_VERSION,
     DOMAIN,
-    LEGACY_CONF_ENDPOINT,
-    LEGACY_CONF_MQTTS_ENDPOINT,
 )
-from .coordinator import SiriusRangehoodCoordinator
-from .data import SiriusRangehoodData
+from .coordinator import PgaRangehoodCoordinator
+from .data import PgaRangehoodData
 from .entity import device_key
 
 if TYPE_CHECKING:
     from homeassistant.core import CALLBACK_TYPE, HomeAssistant
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,29 +44,11 @@ PLATFORMS = [
 ]
 
 
-async def async_migrate_entry(
-    hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
-) -> bool:
-    """Rename the pre-provider endpoint keys to the neutral keys (v1 -> v2)."""
-    if entry.version >= CONFIG_ENTRY_VERSION:
-        return True
-    data = dict(entry.data)
-    if LEGACY_CONF_ENDPOINT in data:
-        data[CONF_ENDPOINT] = data.pop(LEGACY_CONF_ENDPOINT)
-    if LEGACY_CONF_MQTTS_ENDPOINT in data:
-        data[CONF_MQTTS_ENDPOINT] = data.pop(LEGACY_CONF_MQTTS_ENDPOINT)
-    hass.config_entries.async_update_entry(
-        entry, data=data, version=CONFIG_ENTRY_VERSION
-    )
-    return True
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
 ) -> bool:
-    """Set up Sirius Rangehood from a config entry."""
+    """Set up a PGA rangehood integration from a config entry."""
     endpoint = entry.data[CONF_ENDPOINT]
     mqtts_endpoint = entry.data[CONF_MQTTS_ENDPOINT]
     username = entry.data[CONF_USERNAME]
@@ -78,7 +57,7 @@ async def async_setup_entry(
     tenant = entry.data.get(CONF_MQTT_TENANT, SIRIUS_MQTT_TENANT)
 
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
-    hub = SiriusHub(session, endpoint, username, password)
+    hub = PgaHub(session, endpoint, username, password)
 
     # Auth token persistence
     store = Store[dict[str, Any]](hass, 1, f"{DOMAIN}_auth_{entry.entry_id}")
@@ -90,23 +69,25 @@ async def async_setup_entry(
     # Discover devices: gets static properties + initial capability values
     devices = await _async_discover_devices(hub)
 
-    # Shared device state: uid (str) -> flattened state dict
+    # Shared device state: uid (str) -> flattened state dict. These are the
+    # same dicts held in `devices`, so a rename or MQTT merge stays in sync.
     device_states: dict[str, dict[str, Any]] = {}
     for device in devices:
-        device_states[device_key(device)] = dict(device)
+        device_states[device_key(device)] = device
 
     # Coordinator owns the authoritative state and the getStatus heartbeat.
-    coordinator = SiriusRangehoodCoordinator(hass, entry, hub, device_states)
+    coordinator = PgaRangehoodCoordinator(hass, entry, hub, device_states)
 
     # MQTT: aiomqtt drives the socket on the HA event loop, so its callbacks
     # fire on the loop directly — no background thread or thread bridge.
-    mqtt = SiriusMQTT(
+    mqtt = PgaMQTT(
         hass,
         mqtts_endpoint,
         username,
         password,
         coordinator.apply_mqtt_update,
         connection_callback=coordinator.set_mqtt_connected,
+        auth_callback=coordinator.request_reauth,
         identifier=entry.entry_id,
         tenant=tenant,
     )
@@ -133,7 +114,7 @@ async def async_setup_entry(
 
     await _async_start_token_refresh(hass, entry, hub)
 
-    entry.runtime_data = SiriusRangehoodData(
+    entry.runtime_data = PgaRangehoodData(
         hub=hub,
         mqtt=mqtt,
         coordinator=coordinator,
@@ -145,11 +126,11 @@ async def async_setup_entry(
     return True
 
 
-async def _async_discover_devices(hub: SiriusHub) -> list[dict[str, Any]]:
+async def _async_discover_devices(hub: PgaHub) -> list[dict[str, Any]]:
     """Discover devices, mapping failures to config-entry setup exceptions."""
     try:
         devices = await hub.async_discover_devices()
-    except SiriusAuthError as err:
+    except PgaAuthError as err:
         raise ConfigEntryAuthFailed(str(err)) from err
     except Exception as err:
         msg = f"Device discovery failed: {err}"
@@ -162,8 +143,8 @@ async def _async_discover_devices(hub: SiriusHub) -> list[dict[str, Any]]:
 
 async def _async_start_token_refresh(
     hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
-    hub: SiriusHub,
+    entry: PgaRangehoodConfigEntry,
+    hub: PgaHub,
 ) -> None:
     """
     Keep the auth token fresh, rescheduling with a single timer.
@@ -201,7 +182,7 @@ async def _async_start_token_refresh(
 
 async def async_unload_entry(
     hass: HomeAssistant,
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
 ) -> bool:
     """Unload a config entry."""
     unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""DataUpdateCoordinator for Sirius Rangehood."""
+"""DataUpdateCoordinator for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -9,16 +9,17 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_call_later
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import (
     GET_STATUS_INTERVAL,
-    RESPONSE_TIMEOUT,
-    SiriusAuthError,
-    SiriusHub,
-    SiriusMQTT,
+    WRITABLE_CAPABILITIES,
+    PgaAuthError,
+    PgaHub,
+    PgaMQTT,
 )
 from .const import CONF_PROVIDER, DOMAIN, PROVIDER_SIRIUS
 
@@ -31,9 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 MQTT_ISSUE_ID = "mqtt_unavailable"
 
 
-class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
+class PgaRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """
-    Owns the authoritative per-device state for a Sirius account.
+    Owns the authoritative per-device state for one account.
 
     Both data paths funnel through this coordinator: MQTT push updates via
     :meth:`apply_mqtt_update`, and the periodic HTTP ``getStatus`` heartbeat
@@ -42,12 +43,13 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
     """
 
     _MQTT_GRACE_PERIOD = timedelta(seconds=30)
+    _STATUS_TIMEOUT = 20.0
 
     def __init__(
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        hub: SiriusHub,
+        hub: PgaHub,
         device_states: dict[str, dict[str, Any]],
     ) -> None:
         """Initialize the coordinator with the discovered device state."""
@@ -60,19 +62,20 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         )
         self._entry = entry
         self._hub = hub
-        self._mqtt: SiriusMQTT | None = None
+        self._mqtt: PgaMQTT | None = None
         self.device_states = device_states
+        self._fresh = {did: asyncio.Event() for did in device_states}
         self._mqtt_connected = False
         self._mqtt_down_since: datetime | None = None
         self._grace_unsub: CALLBACK_TYPE | None = None
         self._mqtt_repair_raised = False
 
     @property
-    def hub(self) -> SiriusHub:
+    def hub(self) -> PgaHub:
         """Return the HTTP API client backing this coordinator."""
         return self._hub
 
-    def attach_mqtt(self, mqtt: SiriusMQTT) -> None:
+    def attach_mqtt(self, mqtt: PgaMQTT) -> None:
         """Attach the MQTT client used to confirm command acknowledgements."""
         self._mqtt = mqtt
 
@@ -171,74 +174,96 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
 
     async def async_send_command(
         self, device_id: str, params: list[dict[str, Any]]
-    ) -> bool:
+    ) -> None:
         """
-        Send a setValue command and confirm it over the MQTT response topic.
+        Send a setValue command and require the device to acknowledge it.
 
-        The HTTP 200 is the primary gate and is returned as *accepted*. When
-        accepted, the command's MQTT acknowledgement is awaited for logging:
-        a non-zero status is warned about, and a missing acknowledgement
-        within the timeout is treated as inconclusive (the device may still
-        apply the command) rather than a failure.
+        Refuses to send while MQTT is down, validates the values against the
+        device's own limits and the writable-capability allowlist, and raises
+        ``HomeAssistantError`` when the HTTP request is rejected, when no
+        acknowledgement arrives, or when the device reports a non-zero status.
+        A command is never retried automatically.
         """
+        mqtt = self._mqtt
+        if not self._mqtt_connected or mqtt is None:
+            msg = "Rangehood MQTT connection is unavailable"
+            raise HomeAssistantError(msg)
+        self._validate_command(device_id, params)
+
         started = time.monotonic()
         result = await self._hub.async_send_command(device_id, params)
         if not result.accepted:
-            return False
-        await self._log_command_ack(device_id, result.request_id, started)
-        return True
+            msg = f"The rangehood rejected the command for {device_id}"
+            raise HomeAssistantError(msg)
 
-    async def _log_command_ack(
-        self, device_id: str, request_id: str, started: float
-    ) -> None:
-        """Await the MQTT acknowledgement and log its outcome at debug/warning."""
-        if self._mqtt is None:
-            return
-        response = await self._mqtt.wait_for_response(request_id)
-        elapsed = time.monotonic() - started
+        response = await mqtt.wait_for_response(result.request_id)
         if response is None:
-            _LOGGER.debug(
-                "No MQTT acknowledgement for %s within %.1fs (inconclusive)",
-                device_id,
-                RESPONSE_TIMEOUT,
-            )
-            return
-        status = response.get("status")
-        if status == 0:
-            _LOGGER.debug(
-                "Command for %s acknowledged in %.2fs: %s",
-                device_id,
-                elapsed,
-                response,
-            )
-        else:
-            _LOGGER.warning(
-                "Command for %s acknowledged with status %s after %.2fs: %s",
-                device_id,
-                status,
-                elapsed,
-                response,
-            )
+            msg = "Timed out waiting for the rangehood acknowledgement; result unknown"
+            raise HomeAssistantError(msg)
+        if response.get("status") != 0:
+            msg = "The rangehood rejected the command"
+            raise HomeAssistantError(msg)
+        _LOGGER.debug(
+            "Command for %s acknowledged in %.2fs: %s",
+            device_id,
+            time.monotonic() - started,
+            response,
+        )
+
+    def _validate_command(self, device_id: str, params: list[dict[str, Any]]) -> None:
+        """Reject commands targeting a non-writable or out-of-range capability."""
+        limits = self.device_states.get(device_id, {}).get("_limits", {})
+        for param in params:
+            cap = param.get("id")
+            bounds = limits.get(cap)
+            value = param.get("value")
+            if cap not in WRITABLE_CAPABILITIES:
+                msg = f"{cap} is not a writable capability"
+                raise HomeAssistantError(msg)
+            if (
+                bounds is None
+                or isinstance(value, bool)
+                or not isinstance(value, (int, float))
+            ):
+                msg = f"{cap} cannot be set on this device"
+                raise HomeAssistantError(msg)
+            if not bounds["min"] <= value <= bounds["max"]:
+                msg = f"{value} is outside the supported range for {cap}"
+                raise HomeAssistantError(msg)
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
-        """Heartbeat: send getStatus for all devices in parallel."""
+        """Refresh each device's state, waiting for the pushed status."""
         _LOGGER.debug("Coordinator update for %d device(s)", len(self.device_states))
         results = await asyncio.gather(
-            *[self._hub.async_get_status(did) for did in self.device_states],
-            return_exceptions=True,
+            *(self._async_refresh_device(did) for did in self.device_states)
         )
-        for device_id, result in zip(list(self.device_states), results, strict=False):
-            if isinstance(result, SiriusAuthError):
-                _LOGGER.warning(
-                    "Auth failed for device %s, requesting reauth", device_id
-                )
-                self.request_reauth()
-                return self._snapshot()
-            if isinstance(result, Exception):
-                _LOGGER.error("getStatus failed for device %s", device_id)
-            elif result is False:
-                _LOGGER.debug("getStatus request not accepted for %s", device_id)
+        if self.device_states and not any(results):
+            msg = "No fresh device state received"
+            raise UpdateFailed(msg)
         return self._snapshot()
+
+    async def _async_refresh_device(self, device_id: str) -> bool:
+        """Request a getStatus and wait for the fresh status it triggers."""
+        fresh = self._fresh[device_id]
+        fresh.clear()
+        try:
+            result = await self._hub.async_get_status(device_id)
+        except PgaAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except Exception:
+            _LOGGER.exception("getStatus failed for device %s", device_id)
+            return False
+        if not result.accepted:
+            _LOGGER.debug("getStatus request not accepted for %s", device_id)
+            return False
+        try:
+            await asyncio.wait_for(fresh.wait(), self._STATUS_TIMEOUT)
+        except TimeoutError:
+            _LOGGER.debug(
+                "No fresh status for %s within %.0fs", device_id, self._STATUS_TIMEOUT
+            )
+            return False
+        return True
 
     def apply_mqtt_update(self, device_id: str, payload: dict[str, Any]) -> None:
         """
@@ -250,4 +275,6 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         if device_id in self.device_states:
             _LOGGER.debug("MQTT status for device %s: %s", device_id, payload)
             self.device_states[device_id].update(payload)
+            if (fresh := self._fresh.get(device_id)) is not None:
+                fresh.set()
             self.async_set_updated_data(self._snapshot())

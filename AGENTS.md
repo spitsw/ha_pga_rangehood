@@ -101,29 +101,35 @@ The full rationale is in `ARCHITECTURE.md` (ADR-1 … ADR-11) and the wire
 protocol in `PROTOCOL.md`. Read those before changing behavior. The
 load-bearing points:
 
-- **Coordinator is the single source of truth.** `SiriusRangehoodCoordinator`
+- **Coordinator is the single source of truth.** `PgaRangehoodCoordinator`
   (`coordinator.py`, a `DataUpdateCoordinator` subclass) owns `device_states`
   (keyed by device **uid**, not numeric id). Both data paths funnel through it:
   MQTT push via `apply_mqtt_update()` and the HTTP `getStatus` heartbeat via its
   `_async_update_data`. Entities subclass `CoordinatorEntity` (via
-  `SiriusEntity`) and only ever read `coordinator.data.get(device_id)`.
+  `PgaEntity`) and only ever read `coordinator.data.get(device_id)`.
 - **Commands go out over HTTP, state comes in over MQTT.** `hub.async_send_command()`
   POSTs `setValue` and returns a `CommandResult` (HTTP `accepted` + the
   generated `requestId`); the device then pushes a `/status` message that
   updates state. Entities do not read the HTTP response for state. Commands
-  are sent through `coordinator.async_send_command()`, which also awaits the
-  MQTT acknowledgement on `.../response/{requestId}` (see ADR-11): a
-  non-zero `status` is warned about, and a missing ack within
-  `RESPONSE_TIMEOUT` (5 s) is logged at debug as inconclusive — never a
-  failure. The HTTP 200 stays the primary gate.
+  are sent through `coordinator.async_send_command()`, which refuses to send
+  while MQTT is down, validates each value against the device's `_limits` and
+  the `WRITABLE_CAPABILITIES` allowlist, awaits the acknowledgement on
+  `.../response/{requestId}` (see ADR-11), and raises `HomeAssistantError` on
+  an HTTP rejection, a missing ack, or a non-zero `status`. A command is never
+  retried automatically.
 - **MQTT connectivity is surfaced.** The coordinator tracks `mqtt_connected`
   (set from the aiomqtt task on the event loop; see below).
-  `SiriusEntity.available` reflects it with a 30 s grace, and a
+  `PgaEntity.available` reflects it with a 30 s grace, and a
   `mqtt_unavailable` Repairs issue is raised when an outage outlasts the grace.
-- **The HTTP `getStatus` heartbeat is a functional no-op.** The coordinator's
-  `update_method` fires every 300 s purely so a periodic update exists (keeps
-  `last_update_success` true and the MQTT stream primed). It never returns
-  state. Do not "optimize" it into the state source.
+  A broker credential rejection (CONNACK rc 4/5) stops the reconnect loop and
+  starts reauth via the `auth_callback`.
+- **The HTTP `getStatus` heartbeat refreshes state.** The coordinator's
+  `update_method` fires every 300 s, sends `getStatus` for each device, and
+  waits (bounded by `_STATUS_TIMEOUT`) for the resulting MQTT `/status`
+  message, so a dropped push self-corrects. It returns the refreshed snapshot,
+  raises `UpdateFailed` when no device produces fresh state (so
+  `last_update_success` reflects it), and raises `ConfigEntryAuthFailed` on a
+  credential rejection (→ reauth).
 - **MQTT runs on the event loop (ADR-2):** the client uses `aiomqtt`, which
 drives paho-mqtt's socket on the HA loop (no background thread). A single
 background task (`entry.async_create_background_task`) connects, (re)subscribes,
@@ -135,27 +141,28 @@ Reconnection is the task's own exponential-backoff loop (ADR-10).
 - **Device discovery is setup-time only (ADR-7).** `/devices/` is fetched once
   in `async_setup_entry`. New devices require the user to run **Configure**
   (reconfigure) — there is no polling-for-new-devices path.
-- **Reauth (ADR-8):** `SiriusAuthError` from login or a 401 triggers
+- **Reauth (ADR-8):** `PgaAuthError` from login or a 401 triggers
   `async_start_reauth`; the reauth/reconfigure flow uses
   `async_update_reload_and_abort` to preserve entities and registry entries.
 
 ### Platform entity map
 
 `async_setup_entry` in `__init__.py` forwards to `PLATFORMS` and stores a
-`SiriusRangehoodData` dataclass on `entry.runtime_data`. Each platform file
+`PgaRangehoodData` dataclass on `entry.runtime_data`. Each platform file
 follows the same shape: an `async_setup_entry` that reads `entry.runtime_data`
-and constructs entities from `(coordinator, did, device, entry)`.
+and constructs entities from `(coordinator, did, device)` (sensors add their
+`SensorEntityDescription`).
 
 | File | Entities |
 |------|----------|
-| `fan.py` | `SiriusRangehoodFan` — speeds 0-4, mapped to 0/25/50/75/100 % |
-| `light.py` | `SiriusRangehoodLight` — brightness (normalized to 10-100 %), Kelvin colour temp; `SiriusRangehoodSecondaryLight` for `device.light2*` (only if `light2OnOff` present) |
-| `switch.py` | Power, Bi-Power (only if capability present), Timer active |
+| `fan.py` | `PgaRangehoodFan` — speed range from `device.fanSpeed` `_limits`; only if `fanSpeed` present |
+| `light.py` | `PgaRangehoodLight` — colour mode (COLOR_TEMP/BRIGHTNESS/ONOFF), Kelvin and brightness ranges from `_limits`; only if `lightOnOff` present. `PgaRangehoodSecondaryLight` for `device.light2*` |
+| `switch.py` | `PgaRangehoodPowerSwitch` (if `onOff`), `PgaRangehoodBiPowerSwitch`, `PgaRangehoodCleanAirSwitch`, `PgaRangehoodTimerSwitch` — each only if its capability is present |
 | `number.py` | Timer duration (min/max from `device["_limits"]`) |
-| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours) + timer off-time; `SiriusRangehoodSecondaryFilterCountdown` for `device.filter2Value` (only if present) + power-draw sensors for `device.lightPower`/`device.light2Power`/`device.fanPower`/`device.hoodPower` (only if present) |
-| `binary_sensor.py` | Filter worn; `SiriusRangehoodSecondaryFilterWorn` for `device.filter2.worn` (only if present) |
-| `text.py` | `SiriusRangehoodDeviceName` — device name (CONFIG text); calls the rename API on change |
-| `button.py` | `SiriusRangehoodFilterResetButton` — reset the filter-worn flag |
+| `sensor.py` | Diagnostic sensors + filter countdown (seconds→hours, only if present) + timer off-time; `PgaRangehoodSecondaryFilterCountdown` for `device.filter2Value` + capability sensors (`lightPower`/`light2Power`/`fanPower`/`hoodPower`/`fanFlow`, `state_class=MEASUREMENT`), each only if present |
+| `binary_sensor.py` | `PgaRangehoodFilterWorn` (if `filter1.worn` present); `PgaRangehoodSecondaryFilterWorn` for `device.filter2.worn` |
+| `text.py` | `PgaRangehoodDeviceName` — device name (CONFIG text); calls the rename API on change |
+| `button.py` | `PgaRangehoodFilterResetButton` — reset the filter-worn flag |
 
 ## Conventions
 
@@ -163,8 +170,14 @@ and constructs entities from `(coordinator, did, device, entry)`.
   docstring; `_LOGGER = logging.getLogger(__name__)`.
 - Full type hints. HA style: `_attr_*` class attributes over `@property` where
   possible; base classes use `@property` for state derived from the coordinator.
-- `_attr_unique_id` is `f"{device_id}_{suffix}"`; `_attr_device_info` comes
-  from `sirius_device_info(device_id, device)` in `entity.py`.
+- `PgaEntity` builds `_attr_unique_id` as
+  `f"{device_id}_{self._unique_suffix}"` and `_attr_device_info` from
+  `pga_device_info(device_id, device)` in `entity.py`. Subclasses set
+  `_unique_suffix` as a class attribute rather than defining an `__init__`;
+  `PgaRangehoodSensor` sets it per instance, because one class covers every
+  sensor description.
+- Read device state through `_get_device_state()`, and prefer the tri-state
+  `_get_bool` / `_get_float` helpers over open-coding an `is None` check.
 - Device state keys are the raw API `property.*` / `device.*` strings defined
   as `PROP_*` / `CAP_*` in `api/const.py`. Prefer those constants over literals.
 - User-facing names are localized via `translation_key` (not `name`) for most
@@ -217,7 +230,7 @@ and constructs entities from `(coordinator, did, device, entry)`.
   (speed/percentage mapping, manifest consistency), `test_config_flow.py`
   (`_validate_urls` plus the user -> menu -> finish flow), `test_coordinator.py`
   (`apply_mqtt_update`, MQTT availability/grace), `test_init.py`
-  (setup/unload via `MockConfigEntry`, with `SiriusHub`/`SiriusMQTT` faked).
+  (setup/unload via `MockConfigEntry`, with `PgaHub`/`PgaMQTT` faked).
 - The harness pulls in `homeassistant`, one of whose deps compiles a C
   extension, so the test environment needs Python build headers (or a
   uv-managed Python, which ships them).

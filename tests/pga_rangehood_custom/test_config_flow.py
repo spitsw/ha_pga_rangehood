@@ -12,7 +12,10 @@ from custom_components.pga_rangehood_custom.api import (
     PANDO_MQTT_TENANT,
     SIRIUS_MQTT_TENANT,
 )
-from custom_components.pga_rangehood_custom.config_flow import _validate_urls
+from custom_components.pga_rangehood_custom.config_flow import (
+    _validate_tenant,
+    _validate_urls,
+)
 from custom_components.pga_rangehood_custom.const import (
     CONF_ENDPOINT,
     CONF_INSECURE_TLS,
@@ -172,3 +175,64 @@ async def test_reconfigure_reaches_endpoints_without_login(hass, monkeypatch) ->
     assert result["reason"] == "reconfigure_successful"
     assert entry.data[CONF_ENDPOINT] == "https://fixed.example.com"
     assert entry.data[CONF_MQTT_TENANT] == "acme"
+
+
+class TestValidateTenant:
+    """Verify the MQTT tenant validation."""
+
+    def test_valid(self) -> None:
+        """A single path segment is accepted."""
+        assert _validate_tenant("codermine") is None
+
+    def test_empty(self) -> None:
+        """An empty or whitespace tenant is rejected."""
+        assert _validate_tenant("") == "invalid_tenant"
+        assert _validate_tenant("   ") == "invalid_tenant"
+
+    def test_contains_slash(self) -> None:
+        """A tenant with a path separator is rejected."""
+        assert _validate_tenant("a/b") == "invalid_tenant"
+
+
+async def test_endpoints_step_validates_input(hass) -> None:
+    """The endpoints form reports URL and tenant errors, then proceeds."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "endpoints"}
+    )
+    assert result["step_id"] == "endpoints"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ENDPOINT: "http://bad.example.com",
+            CONF_MQTTS_ENDPOINT: "mqtts://bad.example.com:8884",
+            CONF_MQTT_TENANT: "acme",
+            CONF_INSECURE_TLS: False,
+        },
+    )
+    assert result["errors"] == {"base": "invalid_https_url"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ENDPOINT: "https://good.example.com",
+            CONF_MQTTS_ENDPOINT: "mqtts://good.example.com:8884",
+            CONF_MQTT_TENANT: "bad/tenant",
+            CONF_INSECURE_TLS: False,
+        },
+    )
+    assert result["errors"] == {"base": "invalid_tenant"}
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_ENDPOINT: "https://good.example.com",
+            CONF_MQTTS_ENDPOINT: "mqtts://good.example.com:8884",
+            CONF_MQTT_TENANT: "acme",
+            CONF_INSECURE_TLS: False,
+        },
+    )
+    assert result["step_id"] == "credentials"

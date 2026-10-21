@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -19,13 +21,21 @@ from custom_components.pga_rangehood_custom.const import (
     CONF_INSECURE_TLS,
     CONF_MQTTS_ENDPOINT,
     DOMAIN,
-    LEGACY_CONF_ENDPOINT,
-    LEGACY_CONF_MQTTS_ENDPOINT,
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_status_refresh(monkeypatch) -> None:
+    """Skip the fresh-state wait during setup tests."""
+    monkeypatch.setattr(
+        sirius.PgaRangehoodCoordinator,
+        "_async_refresh_device",
+        AsyncMock(return_value=True),
+    )
+
+
 class _FakeHub:
-    """Stand-in for SiriusHub with no network access."""
+    """Stand-in for PgaHub with no network access."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
@@ -54,15 +64,15 @@ class _FakeHub:
     async def async_ensure_token(self, *, retry: bool = True) -> str:
         return "token"
 
-    async def async_get_status(self, _device_id: str) -> bool:
-        return True
+    async def async_get_status(self, _device_id: str) -> CommandResult:
+        return CommandResult(accepted=True, request_id="test")
 
     async def async_send_command(self, _device_id: str, _params: Any) -> CommandResult:
         return CommandResult(accepted=True, request_id="test")
 
 
 class _FakeMQTT:
-    """Stand-in for SiriusMQTT with no network access."""
+    """Stand-in for PgaMQTT with no network access."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.connected = False
@@ -79,8 +89,8 @@ class _FakeMQTT:
 
 async def test_setup_and_unload(hass, monkeypatch) -> None:
     """The entry should load, forward platforms, and unload cleanly."""
-    monkeypatch.setattr(sirius, "SiriusHub", _FakeHub)
-    monkeypatch.setattr(sirius, "SiriusMQTT", _FakeMQTT)
+    monkeypatch.setattr(sirius, "PgaHub", _FakeHub)
+    monkeypatch.setattr(sirius, "PgaMQTT", _FakeMQTT)
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -104,17 +114,16 @@ async def test_setup_and_unload(hass, monkeypatch) -> None:
     assert entry.state is ConfigEntryState.NOT_LOADED
 
 
-async def test_migrate_renames_legacy_endpoint_keys(hass, monkeypatch) -> None:
-    """A pre-provider entry gets its endpoint keys renamed on setup."""
-    monkeypatch.setattr(sirius, "SiriusHub", _FakeHub)
-    monkeypatch.setattr(sirius, "SiriusMQTT", _FakeMQTT)
+async def test_device_state_shares_discovery_dict(hass, monkeypatch) -> None:
+    """The coordinator state and the device list share the same dicts."""
+    monkeypatch.setattr(sirius, "PgaHub", _FakeHub)
+    monkeypatch.setattr(sirius, "PgaMQTT", _FakeMQTT)
 
     entry = MockConfigEntry(
         domain=DOMAIN,
-        version=1,
         data={
-            LEGACY_CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
-            LEGACY_CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
+            CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
+            CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
             CONF_USERNAME: "user",
             CONF_PASSWORD: "pass",
             CONF_INSECURE_TLS: False,
@@ -125,8 +134,7 @@ async def test_migrate_renames_legacy_endpoint_keys(hass, monkeypatch) -> None:
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    assert entry.version == 2
-    assert entry.data[CONF_ENDPOINT] == DEFAULT_SIRIUS_ENDPOINT
-    assert entry.data[CONF_MQTTS_ENDPOINT] == DEFAULT_SIRIUS_MQTTS_ENDPOINT
-    assert LEGACY_CONF_ENDPOINT not in entry.data
-    assert LEGACY_CONF_MQTTS_ENDPOINT not in entry.data
+    data = entry.runtime_data
+    device = data.devices[0]
+    key = device.get("uid") or str(device["id"])
+    assert data.coordinator.device_states[key] is device

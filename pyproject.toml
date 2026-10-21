@@ -1,7 +1,7 @@
 [project]
-name = "sirius-rangehood"
+name = "pga-rangehood"
 version = "1.3.0"
-description = "Home Assistant integration for WiFi-enabled Sirius rangehoods"
+description = "Home Assistant integration for WiFi-enabled Sirius and Pando rangehoods"
 requires-python = ">=3.14"
 
 [tool.semantic_release]

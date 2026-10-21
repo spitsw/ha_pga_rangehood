@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Config flow for Sirius Rangehood."""
+"""Config flow for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -11,14 +11,13 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import SiriusAuthError, SiriusHub
+from .api import PgaAuthError, PgaHub
 from .const import (
     CONF_ENDPOINT,
     CONF_INSECURE_TLS,
     CONF_MQTT_TENANT,
     CONF_MQTTS_ENDPOINT,
     CONF_PROVIDER,
-    CONFIG_ENTRY_VERSION,
     DEFAULT_PROVIDER,
     DOMAIN,
     PROVIDER_CUSTOM,
@@ -73,7 +72,7 @@ async def _try_discover_devices(
 ) -> list[dict[str, Any]] | None:
     """Validate credentials against an endpoint and discover devices."""
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
-    hub = SiriusHub(
+    hub = PgaHub(
         session,
         endpoint,
         user_input[CONF_USERNAME],
@@ -81,7 +80,7 @@ async def _try_discover_devices(
     )
     try:
         devices = await hub.async_discover_devices(retry=False)
-    except SiriusAuthError:
+    except PgaAuthError:
         errors["base"] = "invalid_auth"
         return None
     except Exception:
@@ -97,10 +96,10 @@ async def _try_discover_devices(
         return devices
 
 
-class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Sirius Rangehood."""
+class PgaRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for PGA rangehood."""
 
-    VERSION = CONFIG_ENTRY_VERSION
+    VERSION = 1
 
     _user_input: dict[str, Any]
     _config: dict[str, Any]
@@ -206,16 +205,9 @@ class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
         if self.source == "reauth":
             return await self.async_step_credentials(user_input)
 
-        login_options = {
-            provider: f"Log in to {preset.name}"
-            for provider, preset in PROVIDERS.items()
-        }
         return self.async_show_menu(
             step_id="user",
-            menu_options={
-                **login_options,
-                "endpoints": "Configure custom endpoints (advanced)",
-            },
+            menu_options=[PROVIDER_SIRIUS, PROVIDER_PANDO, "endpoints"],
         )
 
     async def async_step_sirius(
