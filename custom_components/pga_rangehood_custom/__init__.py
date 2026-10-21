@@ -11,6 +11,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.importlib import async_import_module
 from homeassistant.helpers.storage import Store
 
 from .api import SIRIUS_MQTT_TENANT, PgaAuthError, PgaHub, PgaMQTT
@@ -121,9 +122,25 @@ async def async_setup_entry(
         devices=devices,
     )
 
+    await _async_import_platforms(hass)
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
+
+
+async def _async_import_platforms(hass: HomeAssistant) -> None:
+    """
+    Import every platform module (off the event loop).
+
+    Home Assistant only imports a platform in the import executor when it is not
+    already a registered component, so a reload or a second config entry imports
+    them on the event loop instead, which the blocking-call detector reports
+    against this integration. Importing them here keeps the work in the executor
+    and turns Home Assistant's own import into a cache hit.
+    """
+    for platform in PLATFORMS:
+        await async_import_module(hass, f"{__name__}.{platform}")
 
 
 async def _async_discover_devices(hub: PgaHub) -> list[dict[str, Any]]:

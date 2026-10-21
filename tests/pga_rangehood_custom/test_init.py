@@ -141,3 +141,37 @@ async def test_device_state_shares_discovery_dict(hass, monkeypatch) -> None:
     device = data.devices[0]
     key = device.get("uid") or str(device["id"])
     assert data.coordinator.device_states[key] is device
+
+
+async def test_setup_imports_platforms_through_the_helper(hass, monkeypatch) -> None:
+    """Every platform module is imported up front, off the event loop."""
+    monkeypatch.setattr(sirius, "PgaHub", _FakeHub)
+    monkeypatch.setattr(sirius, "PgaMQTT", _FakeMQTT)
+
+    requested: list[str] = []
+    real_import = sirius.async_import_module
+
+    async def spy(_hass, name: str):
+        requested.append(name)
+        return await real_import(_hass, name)
+
+    monkeypatch.setattr(sirius, "async_import_module", spy)
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        version=CONFIG_ENTRY_VERSION,
+        data={
+            CONF_ENDPOINT: DEFAULT_SIRIUS_ENDPOINT,
+            CONF_MQTTS_ENDPOINT: DEFAULT_SIRIUS_MQTTS_ENDPOINT,
+            CONF_USERNAME: "user",
+            CONF_PASSWORD: "pass",
+            CONF_INSECURE_TLS: False,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    expected = [f"{sirius.__name__}.{platform}" for platform in sirius.PLATFORMS]
+    assert requested == expected
