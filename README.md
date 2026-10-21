@@ -76,11 +76,13 @@ no power metering simply shows fewer entities.
 ### Option 1: HACS (recommended)
 
 1. Make sure [HACS](https://hacs.xyz/) is installed.
-2. Add this repository as a **custom repository** in HACS:
-   - URL: `https://github.com/spitsw/ha_pga_rangehood`
-   - Category: **Integration**
-3. Search for "Sirius & Pando Rangehood" in HACS and install.
-4. Restart Home Assistant.
+2. Search HACS for **"Sirius"** or **"Pando"** and install the 'Sirius & Pando Rangehood' component.
+3. Restart Home Assistant.
+
+If HACS doesn't offer it in the search, add it as a **custom repository**
+first: open the **⋮** menu → **Custom repositories**, add
+`https://github.com/spitsw/ha_pga_rangehood` with category **Integration**,
+then search again and install.
 
 ### Option 2: Manual
 
