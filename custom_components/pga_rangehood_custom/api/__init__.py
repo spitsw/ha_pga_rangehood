@@ -1,9 +1,9 @@
 # Copyright (c) 2026 Warren Spits
 """
-Sirius Rangehood API client library.
+PGA rangehood API client library.
 
 This package contains all HTTP and MQTT code that communicates with the
-Sirius cloud server.  The HA layer imports what it needs from here and
+provider's cloud API.  The HA layer imports what it needs from here and
 never makes direct API calls.
 """
 
@@ -57,8 +57,8 @@ from .const import (
     SIRIUS_MQTT_TENANT,
     WRITABLE_CAPABILITIES,
 )
-from .hub import CommandResult, SiriusAuthError, SiriusHub
-from .mqtt import RESPONSE_TIMEOUT, SiriusMQTT
+from .hub import CommandResult, PgaAuthError, PgaHub
+from .mqtt import RESPONSE_TIMEOUT, PgaMQTT
 
 __all__ = [
     "CAP_BI_POWER_ENABLED",
@@ -112,7 +112,7 @@ __all__ = [
     "SIRIUS_MQTT_TENANT",
     "WRITABLE_CAPABILITIES",
     "CommandResult",
-    "SiriusAuthError",
-    "SiriusHub",
-    "SiriusMQTT",
+    "PgaAuthError",
+    "PgaHub",
+    "PgaMQTT",
 ]

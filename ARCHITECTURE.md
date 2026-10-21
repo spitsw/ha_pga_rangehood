@@ -1,7 +1,7 @@
 # Architecture & Design Decisions
 
-This document records key architectural decisions (ADRs) for the Sirius
-Rangehood integration.
+This document records key architectural decisions (ADRs) for the PGA
+rangehood integration.
 
 ---
 
@@ -211,7 +211,7 @@ never received.
 
 If a new rangehood is paired to the account after initial setup, the
 user must reconfigure the integration (**Settings → Devices & Services
-→ Sirius Rangehood → Configure**) to trigger a fresh discovery.
+→ Sirius & Pando Rangehood → Configure**) to trigger a fresh discovery.
 
 **Consequences**:
 - New devices are not discovered automatically — reconfiguration is
@@ -232,7 +232,7 @@ configuration.
 
 **Decision**: A central `_trigger_reauth()` helper fires
 `hass.config_entries.async_start_reauth(entry_id)` on any
-`SiriusAuthError`. The reauth flow (in `config_flow.py`) uses
+`PgaAuthError`. The reauth flow (in `config_flow.py`) uses
 `async_update_reload_and_abort()` — it updates the existing entry's data
 and reloads it, preserving all entity state and device registry entries.
 
@@ -263,7 +263,7 @@ async retry loop that catches `asyncio.TimeoutError` and
 (2 s, 4 s, 8 s).
 
 The retry only applies to *network-level* failures. Application-level
-failures (wrong credentials → `SiriusAuthError`, HTTP 4xx) propagate
+failures (wrong credentials → `PgaAuthError`, HTTP 4xx) propagate
 immediately without retry.
 
 **Consequences**:
@@ -341,7 +341,7 @@ command is only sent while MQTT is connected, and its values are validated
 against the device's limits and writable capabilities first. Both HTTP 200
 and a `status: 0` acknowledgement are required; a missing acknowledgement
 (within `RESPONSE_TIMEOUT`, 5 s) or a non-zero `status` raises
-`HomeAssistantError`, because the result is otherwise unknown. `SiriusMQTT`
+`HomeAssistantError`, because the result is otherwise unknown. `PgaMQTT`
 keeps pending `requestId`s (one `asyncio.Future` each) and resolves the
 matching waiter when the response arrives.
 
@@ -376,7 +376,7 @@ MQTTS host/port) and the **tenant** segment of the MQTT topics
   e.g. a non-standard server or disabling TLS verification).
 
 The resolved endpoints and tenant are stored on the config entry, so there is
-no provider branching at setup: the tenant is simply passed to `SiriusMQTT`
+no provider branching at setup: the tenant is simply passed to `PgaMQTT`
 and used to build topic subscriptions.
 
 **Consequences**:

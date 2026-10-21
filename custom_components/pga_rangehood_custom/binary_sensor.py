@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Binary sensor platform for Sirius Rangehood filter status."""
+"""Binary sensor platform for PGA rangehood filter status."""
 
 from __future__ import annotations
 
@@ -9,18 +9,18 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
 
 from .api import CAP_FILTER2_WORN, CAP_FILTER_WORN
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the binary sensor platform."""
@@ -28,15 +28,15 @@ async def async_setup_entry(
     for coordinator, device_id, device in iter_devices(entry):
         limits = device.get("_limits", {})
         if CAP_FILTER_WORN in limits:
-            entities.append(SiriusRangehoodFilterWorn(coordinator, device_id, device))
+            entities.append(PgaRangehoodFilterWorn(coordinator, device_id, device))
         if CAP_FILTER2_WORN in limits:
             entities.append(
-                SiriusRangehoodSecondaryFilterWorn(coordinator, device_id, device)
+                PgaRangehoodSecondaryFilterWorn(coordinator, device_id, device)
             )
     async_add_entities(entities)
 
 
-class SiriusRangehoodFilterWorn(SiriusEntity, BinarySensorEntity):
+class PgaRangehoodFilterWorn(PgaEntity, BinarySensorEntity):
     """Filter worn indicator; on when the filter needs cleaning."""
 
     _attr_translation_key = "filter_worn"
@@ -56,7 +56,7 @@ class SiriusRangehoodFilterWorn(SiriusEntity, BinarySensorEntity):
         return "mdi:air-filter-alert" if self.is_on else "mdi:air-filter"
 
 
-class SiriusRangehoodSecondaryFilterWorn(SiriusRangehoodFilterWorn):
+class PgaRangehoodSecondaryFilterWorn(PgaRangehoodFilterWorn):
     """Secondary filter worn indicator; on when the filter needs cleaning."""
 
     _attr_translation_key = "secondary_filter_worn"

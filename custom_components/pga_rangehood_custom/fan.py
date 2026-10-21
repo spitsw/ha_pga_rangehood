@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Fan platform for Sirius Rangehood."""
+"""Fan platform for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -9,32 +9,32 @@ from homeassistant.components.fan import FanEntity
 from homeassistant.components.fan.const import FanEntityFeature
 
 from .api import CAP_FAN_SPEED, FAN_SPEED_BOOST, FAN_SPEED_LOW, FAN_SPEED_OFF
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
-    from .data import SiriusRangehoodConfigEntry
+    from .coordinator import PgaRangehoodCoordinator
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the fan platform."""
     entities = [
-        SiriusRangehoodFan(coordinator, device_id, device)
+        PgaRangehoodFan(coordinator, device_id, device)
         for coordinator, device_id, device in iter_devices(entry)
         if CAP_FAN_SPEED in device.get("_limits", {})
     ]
     async_add_entities(entities)
 
 
-class SiriusRangehoodFan(SiriusEntity, FanEntity):
-    """Representation of a Sirius Rangehood fan."""
+class PgaRangehoodFan(PgaEntity, FanEntity):
+    """Representation of a rangehood fan."""
 
     _attr_supported_features = (
         FanEntityFeature.SET_SPEED
@@ -46,7 +46,7 @@ class SiriusRangehoodFan(SiriusEntity, FanEntity):
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
     ) -> None:

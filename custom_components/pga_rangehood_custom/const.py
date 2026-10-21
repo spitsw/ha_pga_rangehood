@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Constants for the Sirius Rangehood integration (HA layer)."""
+"""Constants for the PGA rangehood integration (HA layer)."""
 
 from __future__ import annotations
 

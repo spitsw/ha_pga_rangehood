@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""DataUpdateCoordinator for Sirius Rangehood."""
+"""DataUpdateCoordinator for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import (
     GET_STATUS_INTERVAL,
     WRITABLE_CAPABILITIES,
-    SiriusAuthError,
-    SiriusHub,
-    SiriusMQTT,
+    PgaAuthError,
+    PgaHub,
+    PgaMQTT,
 )
 from .const import CONF_PROVIDER, DOMAIN, PROVIDER_SIRIUS
 
@@ -32,9 +32,9 @@ _LOGGER = logging.getLogger(__name__)
 MQTT_ISSUE_ID = "mqtt_unavailable"
 
 
-class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
+class PgaRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """
-    Owns the authoritative per-device state for a Sirius account.
+    Owns the authoritative per-device state for one account.
 
     Both data paths funnel through this coordinator: MQTT push updates via
     :meth:`apply_mqtt_update`, and the periodic HTTP ``getStatus`` heartbeat
@@ -49,7 +49,7 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self,
         hass: HomeAssistant,
         entry: ConfigEntry,
-        hub: SiriusHub,
+        hub: PgaHub,
         device_states: dict[str, dict[str, Any]],
     ) -> None:
         """Initialize the coordinator with the discovered device state."""
@@ -62,7 +62,7 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         )
         self._entry = entry
         self._hub = hub
-        self._mqtt: SiriusMQTT | None = None
+        self._mqtt: PgaMQTT | None = None
         self.device_states = device_states
         self._fresh = {did: asyncio.Event() for did in device_states}
         self._mqtt_connected = False
@@ -71,11 +71,11 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self._mqtt_repair_raised = False
 
     @property
-    def hub(self) -> SiriusHub:
+    def hub(self) -> PgaHub:
         """Return the HTTP API client backing this coordinator."""
         return self._hub
 
-    def attach_mqtt(self, mqtt: SiriusMQTT) -> None:
+    def attach_mqtt(self, mqtt: PgaMQTT) -> None:
         """Attach the MQTT client used to confirm command acknowledgements."""
         self._mqtt = mqtt
 
@@ -248,7 +248,7 @@ class SiriusRangehoodCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         fresh.clear()
         try:
             result = await self._hub.async_get_status(device_id)
-        except SiriusAuthError as err:
+        except PgaAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except Exception:
             _LOGGER.exception("getStatus failed for device %s", device_id)

@@ -9,7 +9,7 @@ import aiohttp
 import pytest
 
 from custom_components.pga_rangehood_custom.api import hub as hub_module
-from custom_components.pga_rangehood_custom.api.hub import SiriusAuthError, SiriusHub
+from custom_components.pga_rangehood_custom.api.hub import PgaAuthError, PgaHub
 
 
 class TestFlattenDevice:
@@ -34,7 +34,7 @@ class TestFlattenDevice:
                 },
             ],
         }
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         flat = hub._flatten_device(raw)
 
         assert flat["id"] == 1
@@ -59,7 +59,7 @@ class TestFlattenDevice:
             ],
             "capabilities": [],
         }
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         flat = hub._flatten_device(raw)
         assert flat["name"] == "Fallback Name"
 
@@ -72,7 +72,7 @@ class TestFlattenDevice:
             "properties": [],
             "capabilities": [],
         }
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         flat = hub._flatten_device(raw)
         assert flat["id"] == 3
         assert flat["uid"] == "uid-3"
@@ -85,23 +85,23 @@ class TestFlattenDevice:
             "properties": [],
             "capabilities": [],
         }
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         flat = hub._flatten_device(raw)
         assert flat["id"] == 4
         assert flat["uid"] == ""
 
 
-class TestSiriusAuthError:
-    """Verify SiriusAuthError is raiseable and catchable."""
+class TestPgaAuthError:
+    """Verify PgaAuthError is raiseable and catchable."""
 
     def test_is_exception(self) -> None:
-        assert issubclass(SiriusAuthError, Exception)
+        assert issubclass(PgaAuthError, Exception)
 
     def test_can_be_raised_and_caught(self) -> None:
         try:
             msg = "test"
-            raise SiriusAuthError(msg)
-        except SiriusAuthError:
+            raise PgaAuthError(msg)
+        except PgaAuthError:
             assert True
 
 
@@ -110,21 +110,21 @@ class TestRestoreToken:
 
     def test_naive_expiry_becomes_aware(self) -> None:
         """A timezone-naive stored expiry should be treated as UTC."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         hub.restore_token("tok", "2030-01-01T00:00:00")
         assert hub._token_expiry is not None
         assert hub._token_expiry.tzinfo is not None
 
     def test_aware_expiry_preserved(self) -> None:
         """An expiry that already carries an offset should be kept as-is."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         hub.restore_token("tok", "2030-01-01T00:00:00+02:00")
         assert hub._token_expiry is not None
         assert hub._token_expiry.utcoffset().total_seconds() == 7200
 
     def test_invalid_expiry_is_none(self) -> None:
         """An unparsable expiry should leave the token expiry unset."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         hub.restore_token("tok", "not-a-date")
         assert hub._token_expiry is None
 
@@ -134,7 +134,7 @@ class TestCommandResult:
 
     async def test_send_command_returns_request_id(self) -> None:
         """setValue returns the generated requestId and the accepted flag."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         captured: dict[str, object] = {}
 
         async def fake_post(_device_id, payload):
@@ -150,7 +150,7 @@ class TestCommandResult:
 
     async def test_send_command_reports_rejection(self) -> None:
         """A rejected setValue still carries a requestId for bookkeeping."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
 
         async def fake_post(_device_id, _payload):
             return False
@@ -163,7 +163,7 @@ class TestCommandResult:
 
     async def test_get_status_returns_request_id(self) -> None:
         """getStatus returns the HTTP outcome and the generated requestId."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         captured: dict[str, object] = {}
 
         async def fake_post(_device_id, payload):
@@ -183,7 +183,7 @@ class TestRenameDevice:
 
     async def test_rename_posts_new_name(self) -> None:
         """Rename POSTs {"newName": ...} to /devices/{uid}/rename."""
-        hub = SiriusHub.__new__(SiriusHub)
+        hub = PgaHub.__new__(PgaHub)
         hub._endpoint = "https://example.com"
         hub._post_json = AsyncMock(return_value=True)
 
@@ -215,9 +215,9 @@ class _FakeResponse:
         return self
 
 
-def _hub(status: int | None, *, raises: type[Exception] | None = None) -> SiriusHub:
+def _hub(status: int | None, *, raises: type[Exception] | None = None) -> PgaHub:
     """Return a hub whose POST either answers *status* or raises *raises*."""
-    hub = SiriusHub.__new__(SiriusHub)
+    hub = PgaHub.__new__(PgaHub)
     hub._session = MagicMock()
     hub._token = "token"
     hub._token_expiry = None
@@ -243,7 +243,7 @@ class TestPostJson:
     async def test_unauthorized_raises_and_clears_token(self) -> None:
         """HTTP 401 raises and drops the cached token."""
         hub = _hub(401)
-        with pytest.raises(SiriusAuthError):
+        with pytest.raises(PgaAuthError):
             await hub._post_json("url", {}, action="x")
         assert hub._token is None
         assert hub._token_expiry is None

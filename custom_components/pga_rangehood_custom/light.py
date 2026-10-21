@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Light platform for Sirius Rangehood."""
+"""Light platform for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -24,19 +24,19 @@ from .api import (
     LIGHT_COLOR_TEMP_KELVIN_MAX,
     LIGHT_COLOR_TEMP_KELVIN_MIN,
 )
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
-    from .data import SiriusRangehoodConfigEntry
+    from .coordinator import PgaRangehoodCoordinator
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the light platform."""
@@ -44,16 +44,14 @@ async def async_setup_entry(
     for coordinator, device_id, device in iter_devices(entry):
         limits = device.get("_limits", {})
         if CAP_LIGHT_ONOFF in limits:
-            entities.append(SiriusRangehoodLight(coordinator, device_id, device))
+            entities.append(PgaRangehoodLight(coordinator, device_id, device))
         if CAP_LIGHT2_ONOFF in limits:
-            entities.append(
-                SiriusRangehoodSecondaryLight(coordinator, device_id, device)
-            )
+            entities.append(PgaRangehoodSecondaryLight(coordinator, device_id, device))
     async_add_entities(entities)
 
 
-class SiriusRangehoodLight(SiriusEntity, LightEntity):
-    """Representation of a Sirius Rangehood light."""
+class PgaRangehoodLight(PgaEntity, LightEntity):
+    """Representation of a rangehood light."""
 
     _attr_color_mode = ColorMode.COLOR_TEMP
     _attr_supported_color_modes: set[ColorMode] = {ColorMode.COLOR_TEMP}  # noqa: RUF012
@@ -67,7 +65,7 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
     ) -> None:
@@ -150,8 +148,8 @@ class SiriusRangehoodLight(SiriusEntity, LightEntity):
         await self._async_send_command([{"id": self._cap_onoff, "value": 0.0}])
 
 
-class SiriusRangehoodSecondaryLight(SiriusRangehoodLight):
-    """Representation of a Sirius Rangehood secondary light."""
+class PgaRangehoodSecondaryLight(PgaRangehoodLight):
+    """Representation of a rangehood secondary light."""
 
     _attr_translation_key = "secondary_light"
 

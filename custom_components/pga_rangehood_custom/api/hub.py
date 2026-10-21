@@ -81,7 +81,7 @@ async def _run_with_retry[T](
 @dataclass(frozen=True, slots=True)
 class CommandResult:
     """
-    Outcome of a Sirius command request.
+    Outcome of a rangehood command request.
 
     *accepted* reflects the HTTP layer only: True when the server answered
     200 and the command was enqueued. The device's acknowledgement arrives
@@ -92,7 +92,7 @@ class CommandResult:
     request_id: str
 
 
-class SiriusHub:
+class PgaHub:
     """Manages authentication and HTTP API calls to the cloud server."""
 
     def __init__(
@@ -171,7 +171,7 @@ class SiriusHub:
                 if resp.status != _HTTP_OK or not data.get("JWT"):
                     _LOGGER.error("Login failed (HTTP %d)", resp.status)
                     msg = f"Login failed: {data}"
-                    raise SiriusAuthError(msg)  # noqa: TRY301
+                    raise PgaAuthError(msg)  # noqa: TRY301
                 token: str = data["JWT"]
                 self._token = token
                 self._token_expiry = datetime.now(UTC) + timedelta(
@@ -186,7 +186,7 @@ class SiriusHub:
                     self._token_expiry.isoformat(),
                 )
                 return token
-        except SiriusAuthError:
+        except PgaAuthError:
             raise  # never retry a credential rejection
         except _NETWORK_ERRORS:
             _LOGGER.exception(
@@ -219,7 +219,7 @@ class SiriusHub:
                     self._token = None
                     self._token_expiry = None
                     msg = "JWT rejected by /devices/"
-                    raise SiriusAuthError(msg)  # noqa: TRY301
+                    raise PgaAuthError(msg)  # noqa: TRY301
                 if resp.status != _HTTP_OK:
                     _LOGGER.error("Failed to discover devices (HTTP %d)", resp.status)
                     return []
@@ -237,7 +237,7 @@ class SiriusHub:
                         d.get(PROP_FW_VERSION),
                     )
                 return result
-        except SiriusAuthError:
+        except PgaAuthError:
             raise
         except _NETWORK_ERRORS:
             _LOGGER.exception(
@@ -315,7 +315,7 @@ class SiriusHub:
         return CommandResult(accepted=accepted, request_id=request_id)
 
     async def async_rename_device(self, device_id: str, name: str) -> bool:
-        """Rename a device on the Sirius server. True when accepted (HTTP 200)."""
+        """Rename a device on the provider's server. True when accepted (HTTP 200)."""
         _LOGGER.debug("Renaming device %s to %r", device_id, name)
         url = f"{self._endpoint}{API_RENAME.format(device_id=device_id)}"
         return await self._post_json(
@@ -343,14 +343,14 @@ class SiriusHub:
                     self._token = None
                     self._token_expiry = None
                     msg = f"JWT rejected by {action}"
-                    raise SiriusAuthError(msg)  # noqa: TRY301
+                    raise PgaAuthError(msg)  # noqa: TRY301
 
                 if resp.status != _HTTP_OK:
                     _LOGGER.error("%s failed (HTTP %d)", action, resp.status)
                     return False
                 _LOGGER.debug("%s succeeded", action)
                 return True
-        except SiriusAuthError:
+        except PgaAuthError:
             raise
         except TimeoutError:
             _LOGGER.exception("%s timed out after retries", action)
@@ -364,5 +364,5 @@ class SiriusHub:
             return False
 
 
-class SiriusAuthError(Exception):
+class PgaAuthError(Exception):
     """Raised when authentication with the cloud server fails."""

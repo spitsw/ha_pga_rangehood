@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Switch platform for Sirius Rangehood."""
+"""Switch platform for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -16,18 +16,18 @@ from .api import (
     CAP_TIMER_ENABLE,
     CAP_TIMER_VALUE,
 )
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the switch platform."""
@@ -35,18 +35,18 @@ async def async_setup_entry(
     for coordinator, did, device in iter_devices(entry):
         limits = device.get("_limits", {})
         if CAP_POWER in limits:
-            entities.append(SiriusRangehoodPowerSwitch(coordinator, did, device))
+            entities.append(PgaRangehoodPowerSwitch(coordinator, did, device))
         if CAP_BI_POWER_ENABLED in limits:
-            entities.append(SiriusRangehoodBiPowerSwitch(coordinator, did, device))
+            entities.append(PgaRangehoodBiPowerSwitch(coordinator, did, device))
         if CAP_CLEAN_AIR_ENABLED in limits:
-            entities.append(SiriusRangehoodCleanAirSwitch(coordinator, did, device))
+            entities.append(PgaRangehoodCleanAirSwitch(coordinator, did, device))
         if CAP_TIMER_ENABLE in limits:
-            entities.append(SiriusRangehoodTimerSwitch(coordinator, did, device))
+            entities.append(PgaRangehoodTimerSwitch(coordinator, did, device))
     async_add_entities(entities)
 
 
-class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
-    """Global power on/off for a Sirius device."""
+class PgaRangehoodPowerSwitch(PgaEntity, SwitchEntity):
+    """Global power on/off for a rangehood."""
 
     _attr_translation_key = "power"
 
@@ -71,7 +71,7 @@ class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
         await self._async_send_command([{"id": CAP_POWER, "value": 0.0}])
 
 
-class SiriusRangehoodCapabilitySwitch(SiriusEntity, SwitchEntity):
+class PgaRangehoodCapabilitySwitch(PgaEntity, SwitchEntity):
     """Base for a switch that writes 1/0 to a single boolean capability."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
@@ -92,7 +92,7 @@ class SiriusRangehoodCapabilitySwitch(SiriusEntity, SwitchEntity):
         await self._async_send_command([{"id": self._cap, "value": 0.0}])
 
 
-class SiriusRangehoodBiPowerSwitch(SiriusRangehoodCapabilitySwitch):
+class PgaRangehoodBiPowerSwitch(PgaRangehoodCapabilitySwitch):
     """Enable extra airflow and powerful extraction."""
 
     _attr_translation_key = "bi_power"
@@ -101,7 +101,7 @@ class SiriusRangehoodBiPowerSwitch(SiriusRangehoodCapabilitySwitch):
     _unique_suffix = "bi_power"
 
 
-class SiriusRangehoodCleanAirSwitch(SiriusRangehoodCapabilitySwitch):
+class PgaRangehoodCleanAirSwitch(PgaRangehoodCapabilitySwitch):
     """Enable the hood's air-clean mode."""
 
     _attr_translation_key = "clean_air"
@@ -110,7 +110,7 @@ class SiriusRangehoodCleanAirSwitch(SiriusRangehoodCapabilitySwitch):
     _unique_suffix = "clean_air"
 
 
-class SiriusRangehoodTimerSwitch(SiriusEntity, SwitchEntity):
+class PgaRangehoodTimerSwitch(PgaEntity, SwitchEntity):
     """Timer on/off; starts and stops the countdown timer."""
 
     _attr_translation_key = "timer_active"

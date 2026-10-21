@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Text platform for Sirius Rangehood device configuration."""
+"""Text platform for PGA rangehood device configuration."""
 
 from __future__ import annotations
 
@@ -11,33 +11,31 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
 
-from .api import SiriusAuthError
+from .api import PgaAuthError
 from .const import DOMAIN
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the text platform."""
-    entities = [
-        SiriusRangehoodDeviceName(c, did, d) for c, did, d in iter_devices(entry)
-    ]
+    entities = [PgaRangehoodDeviceName(c, did, d) for c, did, d in iter_devices(entry)]
     async_add_entities(entities)
 
 
-class SiriusRangehoodDeviceName(SiriusEntity, TextEntity):
-    """Configuration text entity that renames the device on the Sirius server."""
+class PgaRangehoodDeviceName(PgaEntity, TextEntity):
+    """Configuration text entity that renames the device on the provider's server."""
 
     _attr_translation_key = "device_name"
     _attr_entity_category = EntityCategory.CONFIG
@@ -53,12 +51,12 @@ class SiriusRangehoodDeviceName(SiriusEntity, TextEntity):
         return self._get_device_state().get("name")
 
     async def async_set_value(self, value: str) -> None:
-        """Rename the device on the Sirius server and reflect it locally."""
+        """Rename the device on the provider's server and reflect it locally."""
         try:
             renamed = await self.coordinator.hub.async_rename_device(
                 self._device_id, value
             )
-        except SiriusAuthError:
+        except PgaAuthError:
             self.coordinator.request_reauth()
             return
         if not renamed:

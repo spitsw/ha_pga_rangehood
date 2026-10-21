@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Config flow for Sirius Rangehood."""
+"""Config flow for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import SiriusAuthError, SiriusHub
+from .api import PgaAuthError, PgaHub
 from .const import (
     CONF_ENDPOINT,
     CONF_INSECURE_TLS,
@@ -72,7 +72,7 @@ async def _try_discover_devices(
 ) -> list[dict[str, Any]] | None:
     """Validate credentials against an endpoint and discover devices."""
     session = async_get_clientsession(hass, verify_ssl=not insecure_tls)
-    hub = SiriusHub(
+    hub = PgaHub(
         session,
         endpoint,
         user_input[CONF_USERNAME],
@@ -80,7 +80,7 @@ async def _try_discover_devices(
     )
     try:
         devices = await hub.async_discover_devices(retry=False)
-    except SiriusAuthError:
+    except PgaAuthError:
         errors["base"] = "invalid_auth"
         return None
     except Exception:
@@ -96,8 +96,8 @@ async def _try_discover_devices(
         return devices
 
 
-class SiriusRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Sirius Rangehood."""
+class PgaRangehoodConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Handle a config flow for PGA rangehood."""
 
     VERSION = 1
 

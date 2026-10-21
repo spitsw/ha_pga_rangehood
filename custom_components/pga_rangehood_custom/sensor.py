@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Sensor platform for Sirius Rangehood diagnostics."""
+"""Sensor platform for PGA rangehood diagnostics."""
 
 from __future__ import annotations
 
@@ -35,14 +35,14 @@ from .api import (
     PROP_SECURE_ID,
     PROP_SSID,
 )
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
-    from .data import SiriusRangehoodConfigEntry
+    from .coordinator import PgaRangehoodCoordinator
+    from .data import PgaRangehoodConfigEntry
 
 
 class _SensorSpec(NamedTuple):
@@ -128,7 +128,7 @@ CAPABILITY_SENSOR_DESCRIPTIONS = _descriptions(
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the sensor platform."""
@@ -136,31 +136,31 @@ async def async_setup_entry(
     for coordinator, did, device in iter_devices(entry):
         limits = device.get("_limits", {})
         entities.extend(
-            SiriusRangehoodSensor(coordinator, did, device, desc)
+            PgaRangehoodSensor(coordinator, did, device, desc)
             for desc in SENSOR_DESCRIPTIONS
         )
         if CAP_FILTER_VALUE in limits:
-            entities.append(SiriusRangehoodFilterCountdown(coordinator, did, device))
+            entities.append(PgaRangehoodFilterCountdown(coordinator, did, device))
         if CAP_FILTER2_VALUE in limits:
             entities.append(
-                SiriusRangehoodSecondaryFilterCountdown(coordinator, did, device)
+                PgaRangehoodSecondaryFilterCountdown(coordinator, did, device)
             )
         entities.extend(
-            SiriusRangehoodSensor(coordinator, did, device, desc)
+            PgaRangehoodSensor(coordinator, did, device, desc)
             for desc in CAPABILITY_SENSOR_DESCRIPTIONS
             if desc.key in limits
         )
         if CAP_TIMER_ENABLE in limits:
-            entities.append(SiriusRangehoodTimerOffTime(coordinator, did, device))
+            entities.append(PgaRangehoodTimerOffTime(coordinator, did, device))
     async_add_entities(entities)
 
 
-class SiriusRangehoodSensor(SiriusEntity, SensorEntity):
-    """Generic diagnostic sensor for a Sirius device."""
+class PgaRangehoodSensor(PgaEntity, SensorEntity):
+    """Generic diagnostic sensor for a rangehood."""
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
         description: SensorEntityDescription,
@@ -178,7 +178,7 @@ class SiriusRangehoodSensor(SiriusEntity, SensorEntity):
         return self._get_device_state().get(self.entity_description.key)
 
 
-class SiriusRangehoodFilterCountdown(SiriusEntity, SensorEntity):
+class PgaRangehoodFilterCountdown(PgaEntity, SensorEntity):
     """Filter clean countdown displayed in hours (API returns seconds)."""
 
     _attr_translation_key = "filter_clean_countdown"
@@ -197,7 +197,7 @@ class SiriusRangehoodFilterCountdown(SiriusEntity, SensorEntity):
         return None if value is None else round(value / 3600, 1)
 
 
-class SiriusRangehoodSecondaryFilterCountdown(SiriusRangehoodFilterCountdown):
+class PgaRangehoodSecondaryFilterCountdown(PgaRangehoodFilterCountdown):
     """Secondary filter clean countdown displayed in hours."""
 
     _attr_translation_key = "secondary_filter_clean_countdown"
@@ -206,7 +206,7 @@ class SiriusRangehoodSecondaryFilterCountdown(SiriusRangehoodFilterCountdown):
     _unique_suffix = CAP_FILTER2_VALUE
 
 
-class SiriusRangehoodTimerOffTime(SiriusEntity, SensorEntity):
+class PgaRangehoodTimerOffTime(PgaEntity, SensorEntity):
     """Turn-off time for the countdown timer (timestamp for live countdown)."""
 
     _attr_translation_key = "timer_off_time"

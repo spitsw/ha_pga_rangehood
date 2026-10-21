@@ -28,14 +28,14 @@ from custom_components.pga_rangehood_custom.const import (
 def _stub_status_refresh(monkeypatch) -> None:
     """Skip the fresh-state wait during setup tests."""
     monkeypatch.setattr(
-        sirius.SiriusRangehoodCoordinator,
+        sirius.PgaRangehoodCoordinator,
         "_async_refresh_device",
         AsyncMock(return_value=True),
     )
 
 
 class _FakeHub:
-    """Stand-in for SiriusHub with no network access."""
+    """Stand-in for PgaHub with no network access."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         pass
@@ -72,7 +72,7 @@ class _FakeHub:
 
 
 class _FakeMQTT:
-    """Stand-in for SiriusMQTT with no network access."""
+    """Stand-in for PgaMQTT with no network access."""
 
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.connected = False
@@ -89,8 +89,8 @@ class _FakeMQTT:
 
 async def test_setup_and_unload(hass, monkeypatch) -> None:
     """The entry should load, forward platforms, and unload cleanly."""
-    monkeypatch.setattr(sirius, "SiriusHub", _FakeHub)
-    monkeypatch.setattr(sirius, "SiriusMQTT", _FakeMQTT)
+    monkeypatch.setattr(sirius, "PgaHub", _FakeHub)
+    monkeypatch.setattr(sirius, "PgaMQTT", _FakeMQTT)
 
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -116,8 +116,8 @@ async def test_setup_and_unload(hass, monkeypatch) -> None:
 
 async def test_device_state_shares_discovery_dict(hass, monkeypatch) -> None:
     """The coordinator state and the device list share the same dicts."""
-    monkeypatch.setattr(sirius, "SiriusHub", _FakeHub)
-    monkeypatch.setattr(sirius, "SiriusMQTT", _FakeMQTT)
+    monkeypatch.setattr(sirius, "PgaHub", _FakeHub)
+    monkeypatch.setattr(sirius, "PgaMQTT", _FakeMQTT)
 
     entry = MockConfigEntry(
         domain=DOMAIN,

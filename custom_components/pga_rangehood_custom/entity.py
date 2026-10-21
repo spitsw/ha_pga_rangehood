@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Shared entity base for Sirius Rangehood entities."""
+"""Shared entity base for PGA rangehood entities."""
 
 from __future__ import annotations
 
@@ -9,14 +9,14 @@ from urllib.parse import urlparse
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .api import PROP_DEVICE_NAME, PROP_FW_CODE, PROP_FW_VERSION, SiriusAuthError
+from .api import PROP_DEVICE_NAME, PROP_FW_CODE, PROP_FW_VERSION, PgaAuthError
 from .const import DOMAIN, PROVIDERS
-from .coordinator import SiriusRangehoodCoordinator
+from .coordinator import PgaRangehoodCoordinator
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 
 def manufacturer_for_provider(provider: str, endpoint: str = "") -> str:
@@ -33,15 +33,15 @@ def device_key(device: dict[str, Any]) -> str:
 
 
 def iter_devices(
-    entry: SiriusRangehoodConfigEntry,
-) -> Iterator[tuple[SiriusRangehoodCoordinator, str, dict[str, Any]]]:
+    entry: PgaRangehoodConfigEntry,
+) -> Iterator[tuple[PgaRangehoodCoordinator, str, dict[str, Any]]]:
     """Yield (coordinator, device_id, device) for every discovered device."""
     data = entry.runtime_data
     for device in data.devices:
         yield data.coordinator, device_key(device), device
 
 
-def sirius_device_info(
+def pga_device_info(
     device_id: str, device: dict[str, Any], *, manufacturer: str
 ) -> DeviceInfo:
     """Build a DeviceInfo dict for a rangehood device."""
@@ -63,12 +63,12 @@ def sirius_device_info(
     )
 
 
-class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
-    """Base class for Sirius Rangehood entities."""
+class PgaEntity(CoordinatorEntity[PgaRangehoodCoordinator]):
+    """Base class for PGA rangehood entities."""
 
     _attr_has_entity_name = True
 
-    # Unique-id suffix, set by each entity class; `SiriusRangehoodSensor` sets it
+    # Unique-id suffix, set by each entity class; `PgaRangehoodSensor` sets it
     # per instance instead, because one class serves several sensor keys.
     _unique_suffix: str
 
@@ -76,7 +76,7 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
     ) -> None:
@@ -84,7 +84,7 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         super().__init__(coordinator)
         self._device_id = device_id
         self._attr_unique_id = f"{device_id}_{self._unique_suffix}"
-        self._attr_device_info = sirius_device_info(
+        self._attr_device_info = pga_device_info(
             device_id,
             device,
             manufacturer=manufacturer_for_provider(
@@ -115,5 +115,5 @@ class SiriusEntity(CoordinatorEntity[SiriusRangehoodCoordinator]):
         """Send a setValue command, confirming it via the MQTT response topic."""
         try:
             await self.coordinator.async_send_command(self._device_id, params)
-        except SiriusAuthError:
+        except PgaAuthError:
             self.coordinator.request_reauth()

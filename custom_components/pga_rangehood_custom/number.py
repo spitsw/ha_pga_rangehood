@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Number platform for Sirius Rangehood timer control."""
+"""Number platform for PGA rangehood timer control."""
 
 from __future__ import annotations
 
@@ -12,27 +12,27 @@ from .api import (
     CAP_TIMER_MODIFIABLE,
     CAP_TIMER_VALUE,
 )
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
-    from .data import SiriusRangehoodConfigEntry
+    from .coordinator import PgaRangehoodCoordinator
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the number platform."""
-    entities = [SiriusRangehoodTimer(c, did, d) for c, did, d in iter_devices(entry)]
+    entities = [PgaRangehoodTimer(c, did, d) for c, did, d in iter_devices(entry)]
     async_add_entities(entities)
 
 
-class SiriusRangehoodTimer(SiriusEntity, NumberEntity):
+class PgaRangehoodTimer(PgaEntity, NumberEntity):
     """Timer duration in seconds. Disabled while the countdown is running."""
 
     _attr_translation_key = "timer_duration"
@@ -43,7 +43,7 @@ class SiriusRangehoodTimer(SiriusEntity, NumberEntity):
 
     def __init__(
         self,
-        coordinator: SiriusRangehoodCoordinator,
+        coordinator: PgaRangehoodCoordinator,
         device_id: str,
         device: dict[str, Any],
     ) -> None:

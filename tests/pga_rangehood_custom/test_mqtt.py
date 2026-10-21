@@ -14,14 +14,14 @@ import pytest
 from custom_components.pga_rangehood_custom.api.mqtt import (
     _BROKER_ROOT_CA,
     _X509_V_FLAG_NO_CHECK_TIME,
-    SiriusMQTT,
+    PgaMQTT,
     _build_tls_context,
 )
 
 
 def _make_mqtt(status_callback=None, connection_callback=None):
-    """Build a SiriusMQTT without connecting."""
-    return SiriusMQTT(
+    """Build a PgaMQTT without connecting."""
+    return PgaMQTT(
         MagicMock(),
         "mqtts://broker.example.com:8884",
         "user",
@@ -49,7 +49,7 @@ class TestInit:
 
     def test_default_port(self) -> None:
         """Default to port 8884 when the URL omits a port."""
-        mqtt = SiriusMQTT(MagicMock(), "mqtts://broker.example.com", "user", "pass")
+        mqtt = PgaMQTT(MagicMock(), "mqtts://broker.example.com", "user", "pass")
         assert mqtt._port == 8884
 
     def test_not_connected_initially(self) -> None:
@@ -75,7 +75,7 @@ class TestSubscribeDevice:
 
     def test_status_topic_uses_custom_tenant(self) -> None:
         """A Pando-style tenant is reflected in the topic."""
-        mqtt = SiriusMQTT(
+        mqtt = PgaMQTT(
             MagicMock(),
             "mqtts://pando.iotpga.it:8883",
             "user",
@@ -277,7 +277,7 @@ class TestAuthFailure:
     async def test_bad_credentials_trigger_reauth(self) -> None:
         """A CONNACK rejection (rc 4/5) calls the auth callback and stops."""
         callback = MagicMock()
-        mqtt = SiriusMQTT(
+        mqtt = PgaMQTT(
             MagicMock(),
             "mqtts://broker.example.com:8884",
             "user",

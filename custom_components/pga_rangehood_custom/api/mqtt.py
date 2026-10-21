@@ -66,7 +66,7 @@ def _build_tls_context() -> ssl.SSLContext:
     return context
 
 
-class SiriusMQTT:
+class PgaMQTT:
     """
     Manages an MQTTS connection to the rangehood cloud broker.
 

@@ -16,19 +16,19 @@ from custom_components.pga_rangehood_custom.api import (
     CAP_LIGHT_ONOFF,
     CAP_LIGHT_POWER,
 )
-from custom_components.pga_rangehood_custom.fan import SiriusRangehoodFan
+from custom_components.pga_rangehood_custom.fan import PgaRangehoodFan
 from custom_components.pga_rangehood_custom.fan import (
     async_setup_entry as setup_fans,
 )
-from custom_components.pga_rangehood_custom.light import SiriusRangehoodLight
+from custom_components.pga_rangehood_custom.light import PgaRangehoodLight
 from custom_components.pga_rangehood_custom.sensor import (
     CAPABILITY_SENSOR_DESCRIPTIONS,
-    SiriusRangehoodSensor,
+    PgaRangehoodSensor,
 )
 from custom_components.pga_rangehood_custom.sensor import (
     async_setup_entry as setup_sensors,
 )
-from custom_components.pga_rangehood_custom.switch import SiriusRangehoodCleanAirSwitch
+from custom_components.pga_rangehood_custom.switch import PgaRangehoodCleanAirSwitch
 from custom_components.pga_rangehood_custom.switch import (
     async_setup_entry as setup_switches,
 )
@@ -68,26 +68,26 @@ class TestFanRange:
     def test_speed_count_from_limits(self) -> None:
         """speed_count follows the advertised maximum speed."""
         limits = {CAP_FAN_SPEED: {"min": 0.0, "max": 3.0}}
-        fan = SiriusRangehoodFan(_coordinator(), "dev1", _device(limits=limits))
+        fan = PgaRangehoodFan(_coordinator(), "dev1", _device(limits=limits))
         assert fan.speed_count == 3
         assert round(3 * 100 / fan.speed_count) == 100
 
     def test_speed_count_defaults_without_limits(self) -> None:
         """Without bounds the fan falls back to the boost speed."""
-        fan = SiriusRangehoodFan(_coordinator(), "dev1", _device())
+        fan = PgaRangehoodFan(_coordinator(), "dev1", _device())
         assert fan.speed_count == 4
 
     def test_speed_count_guards_zero_max(self) -> None:
         """A malformed zero maximum falls back to the boost speed."""
         limits = {CAP_FAN_SPEED: {"min": 0.0, "max": 0.0}}
-        fan = SiriusRangehoodFan(_coordinator(), "dev1", _device(limits=limits))
+        fan = PgaRangehoodFan(_coordinator(), "dev1", _device(limits=limits))
         assert fan.speed_count == 4
 
     async def test_set_percentage_scales_to_range(self) -> None:
         """A percentage is scaled to the device's own speed range."""
         limits = {CAP_FAN_SPEED: {"min": 0.0, "max": 4.0}}
         coordinator = _coordinator()
-        fan = SiriusRangehoodFan(coordinator, "dev1", _device(limits=limits))
+        fan = PgaRangehoodFan(coordinator, "dev1", _device(limits=limits))
         await fan.async_set_percentage(50)
         coordinator.async_send_command.assert_awaited_once_with(
             "dev1", [{"id": CAP_FAN_SPEED, "value": 2}]
@@ -102,7 +102,7 @@ class TestFanRange:
         add = MagicMock()
         limits = {CAP_FAN_SPEED: {"min": 0.0, "max": 4.0}}
         await setup_fans(hass, _entry([_device(limits=limits)], _coordinator()), add)
-        assert [type(e) for e in add.call_args[0][0]] == [SiriusRangehoodFan]
+        assert [type(e) for e in add.call_args[0][0]] == [PgaRangehoodFan]
 
 
 class TestLightColourMode:
@@ -114,7 +114,7 @@ class TestLightColourMode:
             CAP_LIGHT_ONOFF: {"min": 0.0, "max": 1.0},
             CAP_LIGHT_COLOR_TEMP: {"min": 2200.0, "max": 5000.0},
         }
-        light = SiriusRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
+        light = PgaRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
         assert light.supported_color_modes == {ColorMode.COLOR_TEMP}
         assert light.min_color_temp_kelvin == 2200
         assert light.max_color_temp_kelvin == 5000
@@ -126,10 +126,10 @@ class TestLightColourMode:
             CAP_LIGHT_BRIGHTNESS: {"min": 20.0, "max": 80.0},
         }
         device = _device(limits=limits)
-        low = SiriusRangehoodLight(
+        low = PgaRangehoodLight(
             _coordinator({CAP_LIGHT_BRIGHTNESS: 20}), "dev1", device
         )
-        mid = SiriusRangehoodLight(
+        mid = PgaRangehoodLight(
             _coordinator({CAP_LIGHT_BRIGHTNESS: 50}), "dev1", device
         )
         assert low.brightness == 0
@@ -142,7 +142,7 @@ class TestLightColourMode:
             CAP_LIGHT_BRIGHTNESS: {"min": 10.0, "max": 100.0},
         }
         coordinator = _coordinator()
-        light = SiriusRangehoodLight(coordinator, "dev1", _device(limits=limits))
+        light = PgaRangehoodLight(coordinator, "dev1", _device(limits=limits))
 
         await light.async_turn_on(brightness=128)
 
@@ -152,13 +152,13 @@ class TestLightColourMode:
     def test_brightness_only_mode(self) -> None:
         """A light without colour temperature is a plain dimmer."""
         limits = {CAP_LIGHT_ONOFF: {}, CAP_LIGHT_BRIGHTNESS: {}}
-        light = SiriusRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
+        light = PgaRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
         assert light.supported_color_modes == {ColorMode.BRIGHTNESS}
 
     def test_onoff_only_mode(self) -> None:
         """A light with no colour capabilities is on/off only."""
         limits = {CAP_LIGHT_ONOFF: {}}
-        light = SiriusRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
+        light = PgaRangehoodLight(_coordinator(), "dev1", _device(limits=limits))
         assert light.supported_color_modes == {ColorMode.ONOFF}
 
 
@@ -168,7 +168,7 @@ class TestCleanAirSwitch:
     async def test_writes_capability(self) -> None:
         """Turning on writes 1 to device.cleanAirEnabled."""
         coordinator = _coordinator({CAP_CLEAN_AIR_ENABLED: 0})
-        switch = SiriusRangehoodCleanAirSwitch(coordinator, "dev1", _device())
+        switch = PgaRangehoodCleanAirSwitch(coordinator, "dev1", _device())
         await switch.async_turn_on()
         coordinator.async_send_command.assert_awaited_once_with(
             "dev1", [{"id": CAP_CLEAN_AIR_ENABLED, "value": 1.0}]
@@ -176,14 +176,14 @@ class TestCleanAirSwitch:
 
     def test_reads_state(self) -> None:
         """is_on reflects the capability value."""
-        switch = SiriusRangehoodCleanAirSwitch(
+        switch = PgaRangehoodCleanAirSwitch(
             _coordinator({CAP_CLEAN_AIR_ENABLED: 1}), "dev1", _device()
         )
         assert switch.is_on is True
 
     def test_unique_id_uses_the_class_suffix(self) -> None:
         """The unique id is the device key plus the class's own suffix."""
-        switch = SiriusRangehoodCleanAirSwitch(_coordinator(), "dev1", _device())
+        switch = PgaRangehoodCleanAirSwitch(_coordinator(), "dev1", _device())
         assert switch.unique_id == "dev1_clean_air"
 
     async def test_gated_by_capability(self, hass) -> None:
@@ -197,7 +197,7 @@ class TestCleanAirSwitch:
         await setup_switches(
             hass, _entry([_device(limits=limits)], _coordinator()), add
         )
-        assert [type(e) for e in add.call_args[0][0]] == [SiriusRangehoodCleanAirSwitch]
+        assert [type(e) for e in add.call_args[0][0]] == [PgaRangehoodCleanAirSwitch]
 
 
 class TestAirflowSensor:
@@ -205,7 +205,7 @@ class TestAirflowSensor:
 
     def test_reads_value_and_state_class(self) -> None:
         """device.fanFlow is reported as a measurement in m³/h."""
-        sensor = SiriusRangehoodSensor(
+        sensor = PgaRangehoodSensor(
             _coordinator({CAP_FAN_FLOW: 320}),
             "dev1",
             _device(),

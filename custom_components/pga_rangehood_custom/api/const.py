@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Constants for the Sirius Rangehood API layer."""
+"""Constants for the PGA rangehood API layer."""
 
 VERSION = "1.1.1"
 
