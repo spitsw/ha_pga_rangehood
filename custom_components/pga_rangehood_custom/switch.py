@@ -1,68 +1,61 @@
 # Copyright (c) 2026 Warren Spits
-"""Switch platform for Sirius Rangehood."""
+"""Switch platform for PGA rangehood."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.components.switch.const import SwitchDeviceClass
 
 from .api import (
     CAP_BI_POWER_ENABLED,
+    CAP_CLEAN_AIR_ENABLED,
     CAP_POWER,
     CAP_TIMER_ACTIVE,
     CAP_TIMER_ENABLE,
     CAP_TIMER_VALUE,
 )
-from .entity import SiriusEntity, iter_devices
+from .entity import PgaEntity, iter_devices
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-    from .coordinator import SiriusRangehoodCoordinator
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up the switch platform."""
     entities = []
     for coordinator, did, device in iter_devices(entry):
-        entities.append(SiriusRangehoodPowerSwitch(coordinator, did, device))
-        if CAP_BI_POWER_ENABLED in device.get("_limits", {}):
-            entities.append(SiriusRangehoodBiPowerSwitch(coordinator, did, device))
-        if CAP_TIMER_ENABLE in device.get("_limits", {}):
-            entities.append(SiriusRangehoodTimerSwitch(coordinator, did, device))
+        limits = device.get("_limits", {})
+        if CAP_POWER in limits:
+            entities.append(PgaRangehoodPowerSwitch(coordinator, did, device))
+        if CAP_BI_POWER_ENABLED in limits:
+            entities.append(PgaRangehoodBiPowerSwitch(coordinator, did, device))
+        if CAP_CLEAN_AIR_ENABLED in limits:
+            entities.append(PgaRangehoodCleanAirSwitch(coordinator, did, device))
+        if CAP_TIMER_ENABLE in limits:
+            entities.append(PgaRangehoodTimerSwitch(coordinator, did, device))
     async_add_entities(entities)
 
 
-class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
-    """Global power on/off for a Sirius device."""
+class PgaRangehoodPowerSwitch(PgaEntity, SwitchEntity):
+    """Global power on/off for a rangehood."""
 
     _attr_translation_key = "power"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the global power switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="power")
+    _unique_suffix = "power"
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the device is powered on."""
-        state = self._get_device_state()
-        val = state.get(CAP_POWER)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(CAP_POWER)
 
     @property
     def icon(self) -> str:
@@ -78,61 +71,56 @@ class SiriusRangehoodPowerSwitch(SiriusEntity, SwitchEntity):
         await self._async_send_command([{"id": CAP_POWER, "value": 0.0}])
 
 
-class SiriusRangehoodBiPowerSwitch(SiriusEntity, SwitchEntity):
-    """Enable extra airflow and powerful extraction."""
+class PgaRangehoodCapabilitySwitch(PgaEntity, SwitchEntity):
+    """Base for a switch that writes 1/0 to a single boolean capability."""
 
-    _attr_translation_key = "bi_power"
     _attr_device_class = SwitchDeviceClass.SWITCH
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the bi-power switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="bi_power")
+    _cap: ClassVar[str]
 
     @property
     def is_on(self) -> bool | None:
-        """Return True when bi-power mode is enabled."""
-        state = self._get_device_state()
-        val = state.get(CAP_BI_POWER_ENABLED)
-        if val is not None:
-            return bool(val)
-        return None
+        """Return True when the capability is enabled."""
+        return self._get_bool(self._cap)
 
     async def async_turn_on(self, **kwargs: Any) -> None:  # noqa: ARG002
-        """Enable bi-power mode."""
-        await self._async_send_command([{"id": CAP_BI_POWER_ENABLED, "value": 1.0}])
+        """Enable the capability."""
+        await self._async_send_command([{"id": self._cap, "value": 1.0}])
 
     async def async_turn_off(self, **kwargs: Any) -> None:  # noqa: ARG002
-        """Disable bi-power mode."""
-        await self._async_send_command([{"id": CAP_BI_POWER_ENABLED, "value": 0.0}])
+        """Disable the capability."""
+        await self._async_send_command([{"id": self._cap, "value": 0.0}])
 
 
-class SiriusRangehoodTimerSwitch(SiriusEntity, SwitchEntity):
+class PgaRangehoodBiPowerSwitch(PgaRangehoodCapabilitySwitch):
+    """Enable extra airflow and powerful extraction."""
+
+    _attr_translation_key = "bi_power"
+
+    _cap = CAP_BI_POWER_ENABLED
+    _unique_suffix = "bi_power"
+
+
+class PgaRangehoodCleanAirSwitch(PgaRangehoodCapabilitySwitch):
+    """Enable the hood's air-clean mode."""
+
+    _attr_translation_key = "clean_air"
+
+    _cap = CAP_CLEAN_AIR_ENABLED
+    _unique_suffix = "clean_air"
+
+
+class PgaRangehoodTimerSwitch(PgaEntity, SwitchEntity):
     """Timer on/off; starts and stops the countdown timer."""
 
     _attr_translation_key = "timer_active"
 
-    def __init__(
-        self,
-        coordinator: SiriusRangehoodCoordinator,
-        device_id: str,
-        device: dict[str, Any],
-    ) -> None:
-        """Initialize the timer active switch."""
-        super().__init__(coordinator, device_id, device, unique_suffix="timer_active")
+    _unique_suffix = "timer_active"
 
     @property
     def is_on(self) -> bool | None:
         """Return True when the countdown timer is running."""
-        state = self._get_device_state()
-        val = state.get(CAP_TIMER_ACTIVE)
-        if val is not None:
-            return bool(val)
-        return None
+        return self._get_bool(CAP_TIMER_ACTIVE)
 
     @property
     def available(self) -> bool:

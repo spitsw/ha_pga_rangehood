@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 StatusCallback = Callable[[str, dict[str, Any]], None]  # device_id, payload
 ConnectionCallback = Callable[[bool], None]  # connected
+AuthCallback = Callable[[], None]  # broker rejected the credentials
 
 _TOPIC_ERRORS = (ValueError, IndexError)
 _JSON_ERRORS = (json.JSONDecodeError, UnicodeDecodeError)
@@ -31,9 +32,13 @@ _JSON_ERRORS = (json.JSONDecodeError, UnicodeDecodeError)
 _RECONNECT_MIN_DELAY = 1.0
 _RECONNECT_MAX_DELAY = 120.0
 _CONNECT_TIMEOUT = 10.0
+_MAX_QUEUED_MESSAGES = 256
 
-# Seconds to wait for a command acknowledgement on the response topic. A
-# timeout is inconclusive, not a failure: the device may simply be slow.
+# MQTT CONNACK return codes that mean the broker rejected the credentials.
+_AUTH_ERROR_CODES = (4, 5)
+
+# Seconds to wait for a command acknowledgement on the response topic. The
+# caller decides what a missing acknowledgement means (the coordinator raises).
 RESPONSE_TIMEOUT = 5.0
 
 # OpenSSL X509_V_FLAG_NO_CHECK_TIME (not exposed by Python's `ssl`). It disables
@@ -61,7 +66,7 @@ def _build_tls_context() -> ssl.SSLContext:
     return context
 
 
-class SiriusMQTT:
+class PgaMQTT:
     """
     Manages an MQTTS connection to the rangehood cloud broker.
 
@@ -83,6 +88,7 @@ class SiriusMQTT:
         status_callback: StatusCallback | None = None,
         *,
         connection_callback: ConnectionCallback | None = None,
+        auth_callback: AuthCallback | None = None,
         identifier: str | None = None,
         tenant: str = SIRIUS_MQTT_TENANT,
     ) -> None:
@@ -92,6 +98,7 @@ class SiriusMQTT:
         self._password = password
         self._status_callback = status_callback
         self._connection_callback = connection_callback
+        self._auth_callback = auth_callback
         self._identifier = identifier
         self._tenant = tenant
 
@@ -133,6 +140,8 @@ class SiriusMQTT:
             tls_context=context,
             keepalive=self._KEEPALIVE,
             identifier=self._identifier,
+            protocol=aiomqtt.ProtocolVersion.V311,
+            max_queued_incoming_messages=_MAX_QUEUED_MESSAGES,
         )
 
     async def async_start(self) -> bool:
@@ -151,7 +160,7 @@ class SiriusMQTT:
                 _CONNECT_TIMEOUT,
             )
             return False
-        return True
+        return self._connected
 
     async def async_stop(self) -> None:
         """Stop consuming and disconnect."""
@@ -168,11 +177,10 @@ class SiriusMQTT:
 
     async def _run(self) -> None:
         """Maintain the connection, reconnecting with exponential backoff."""
-        client = self._new_client()
         delay = _RECONNECT_MIN_DELAY
         while True:
             try:
-                async with client:
+                async with self._new_client() as client:
                     self._set_connected(connected=True)
                     delay = _RECONNECT_MIN_DELAY
                     for device_id in self._subscribed_devices:
@@ -185,14 +193,31 @@ class SiriusMQTT:
                         self._handle_message(message)
             except aiomqtt.MqttError as err:
                 self._set_connected(connected=False)
+                if (
+                    isinstance(err, aiomqtt.MqttCodeError)
+                    and err.rc in _AUTH_ERROR_CODES
+                ):
+                    _LOGGER.warning(
+                        "MQTT broker %s rejected the credentials (%s); reauth needed",
+                        self._host,
+                        err,
+                    )
+                    if self._connected_event is not None:
+                        self._connected_event.set()
+                    if self._auth_callback is not None:
+                        self._auth_callback()
+                    return
                 _LOGGER.warning(
                     "MQTT connection to %s lost (%s); retrying in %.0fs",
                     self._host,
                     err,
                     delay,
                 )
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, _RECONNECT_MAX_DELAY)
+            except Exception:
+                self._set_connected(connected=False)
+                _LOGGER.exception("Unexpected MQTT error; retrying in %.0fs", delay)
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, _RECONNECT_MAX_DELAY)
 
     def _set_connected(self, *, connected: bool) -> None:
         """Record connectivity and notify the listener (HA event loop only)."""
@@ -206,6 +231,8 @@ class SiriusMQTT:
 
     def _handle_message(self, message: aiomqtt.Message) -> None:
         """Route a message: responses resolve waiters, status updates forward."""
+        if message.retain:
+            return
         topic = message.topic.value
         try:
             raw = json.loads(message.payload.decode("utf-8"))
@@ -251,8 +278,8 @@ class SiriusMQTT:
         Wait for the broker's acknowledgement of *request_id*.
 
         Returns the parsed response payload, or None when no acknowledgement
-        arrived within *timeout* seconds. A timeout is inconclusive, not a
-        failure: the device may still be processing the command.
+        arrived within *timeout* seconds; the caller decides whether that is a
+        failure.
         """
         loop = asyncio.get_running_loop()
         future: asyncio.Future[dict[str, Any]] = loop.create_future()

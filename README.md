@@ -35,6 +35,7 @@ choose **Configure custom endpoints** after logging in.
 | **Secondary Light** | Second light's brightness and colour temperature (if the model has one) |
 | **Global Power** | Turn fan and light on/off together |
 | **Bi-Power** | Extra airflow and powerful extraction (if supported) |
+| **Air Clean** | Hood air-clean mode (if supported) |
 | **Timer Active** | Start / stop the countdown timer |
 | **Timer Duration** | Set the countdown length in seconds |
 | **Device Name** | Rename the rangehood (a configuration text entity) |
@@ -48,6 +49,7 @@ choose **Configure custom endpoints** after logging in.
 | **Secondary Filter Clean Countdown** | Same for the second filter, if the model has one |
 | **Turn-off Time** | The moment the countdown timer will switch the rangehood off |
 | **Light / Secondary Light / Fan / Hood Power** | Live power draw in Watts — reported only for the parts a model measures |
+| **Fan Airflow** | Reported airflow in m³/h (if the model reports it) |
 | **Diagnostics** | IP address, WiFi signal (RSSI), SSID, firmware version & code, device ref / type / class, secure ID |
 
 **Binary sensors**
@@ -62,6 +64,11 @@ entities become **Unavailable** after about 30 seconds and a **Repairs**
 notification ("Rangehood MQTT connection lost") appears; both clear
 automatically once the broker is reachable again.
 
+Entities are created only for the capabilities your rangehood actually
+reports, and the fan speed range and light colour-temperature range are taken
+from the device's own metadata. A model with no second light, no filter 2, or
+no power metering simply shows fewer entities.
+
 ---
 
 ## Installation
@@ -69,11 +76,13 @@ automatically once the broker is reachable again.
 ### Option 1: HACS (recommended)
 
 1. Make sure [HACS](https://hacs.xyz/) is installed.
-2. Add this repository as a **custom repository** in HACS:
-   - URL: `https://github.com/spitsw/ha_pga_rangehood`
-   - Category: **Integration**
-3. Search for "Sirius & Pando Rangehood" in HACS and install.
-4. Restart Home Assistant.
+2. Search HACS for **"Sirius"** or **"Pando"** and install the 'Sirius & Pando Rangehood' component.
+3. Restart Home Assistant.
+
+If HACS doesn't offer it in the search, add it as a **custom repository**
+first: open the **⋮** menu → **Custom repositories**, add
+`https://github.com/spitsw/ha_pga_rangehood` with category **Integration**,
+then search again and install.
 
 ### Option 2: Manual
 

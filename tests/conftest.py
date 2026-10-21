@@ -1,4 +1,4 @@
-"""Shared pytest configuration for the Sirius Rangehood tests.
+"""Shared pytest configuration for the PGA rangehood tests.
 
 Home Assistant's test harness (``pytest-homeassistant-custom-component``)
 provides the ``hass`` fixture and the ``enable_custom_integrations`` fixture.

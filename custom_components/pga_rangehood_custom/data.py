@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Runtime data shared across the Sirius Rangehood integration."""
+"""Runtime data shared across the PGA rangehood integration."""
 
 from __future__ import annotations
 
@@ -9,18 +9,18 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
 
-    from .api import SiriusHub, SiriusMQTT
-    from .coordinator import SiriusRangehoodCoordinator
+    from .api import PgaHub, PgaMQTT
+    from .coordinator import PgaRangehoodCoordinator
 
 
 @dataclass
-class SiriusRangehoodData:
+class PgaRangehoodData:
     """Runtime data held on the config entry while it is loaded."""
 
-    hub: SiriusHub
-    mqtt: SiriusMQTT
-    coordinator: SiriusRangehoodCoordinator
+    hub: PgaHub
+    mqtt: PgaMQTT
+    coordinator: PgaRangehoodCoordinator
     devices: list[dict[str, Any]]
 
 
-type SiriusRangehoodConfigEntry = ConfigEntry[SiriusRangehoodData]
+type PgaRangehoodConfigEntry = ConfigEntry[PgaRangehoodData]

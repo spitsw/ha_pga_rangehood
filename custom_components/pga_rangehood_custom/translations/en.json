@@ -2,7 +2,12 @@
   "config": {
     "step": {
       "user": {
-        "description": "Log in to Sirius or Pando, or configure custom server endpoints if you use a non-standard server (advanced)."
+        "description": "Log in to Sirius or Pando, or configure custom server endpoints if you use a non-standard server (advanced).",
+        "menu_options": {
+          "sirius": "Log in to Sirius",
+          "pando": "Log in to Pando",
+          "endpoints": "Configure custom endpoints (advanced)"
+        }
       },
       "credentials": {
         "data": {
@@ -44,6 +49,9 @@
     "switch": {
       "bi_power": {
         "name": "Bi-Power"
+      },
+      "clean_air": {
+        "name": "Air Clean"
       },
       "power": {
         "name": "Global Power"
@@ -93,6 +101,9 @@
       },
       "hood_power": {
         "name": "Hood Power"
+      },
+      "fan_flow": {
+        "name": "Fan Airflow"
       },
       "timer_off_time": {
         "name": "Turn-off Time"
