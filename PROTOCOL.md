@@ -308,10 +308,15 @@ only.
 - A client subscribes to the device's `status` topic and to the device's
   response wildcard (see [Topics](#topics)).
 
-> **TLS caveat**: observed traffic connects without validating the server
-> certificate (the broker certificate is expired). A client therefore cannot
-> authenticate the broker by certificate; the channel is not protected against
-> active interception.
+> **TLS caveat**: the broker's leaf certificate expired in 2024 and is never
+> renewed, so a client has to disable OpenSSL's certificate **time check**
+> (`X509_V_FLAG_NO_CHECK_TIME`) to complete the handshake. The certificate
+> **chain and hostname are still verified** (against DigiCert's legacy Global
+> Root CA, which current trust stores no longer ship), so the broker is still
+> authenticated as `*.iotpga.it`. What is given up is time validity, so a lapsed
+> or future-dated leaf, or a leaked one whose key an attacker holds, is accepted;
+> certificate expiry is therefore not a usable trust signal on this channel.
+> Revocation (CRL/OCSP) is not checked either way.
 
 ### Topics
 

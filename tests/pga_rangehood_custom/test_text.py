@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from custom_components.pga_rangehood_custom.api import SiriusAuthError
-from custom_components.pga_rangehood_custom.text import SiriusRangehoodDeviceName
+from custom_components.pga_rangehood_custom.api import PgaAuthError
+from custom_components.pga_rangehood_custom.text import PgaRangehoodDeviceName
 
 
 def _coordinator(state: dict) -> MagicMock:
@@ -21,9 +21,9 @@ def _device() -> dict:
     return {"id": 1, "uid": "dev1", "name": "Old Name", "description": "Old Name"}
 
 
-def _entity(coordinator: MagicMock) -> SiriusRangehoodDeviceName:
+def _entity(coordinator: MagicMock) -> PgaRangehoodDeviceName:
     """Build the entity and give it a hass so registry writes are no-ops."""
-    return SiriusRangehoodDeviceName(coordinator, "dev1", _device())
+    return PgaRangehoodDeviceName(coordinator, "dev1", _device())
 
 
 class TestDeviceName:
@@ -60,7 +60,7 @@ class TestDeviceName:
         """An auth failure starts reauth and does not change the name."""
         coordinator = _coordinator({"name": "Old Name"})
         coordinator.hub.async_rename_device = AsyncMock(
-            side_effect=SiriusAuthError("rejected")
+            side_effect=PgaAuthError("rejected")
         )
         entity = _entity(coordinator)
         entity.hass = hass

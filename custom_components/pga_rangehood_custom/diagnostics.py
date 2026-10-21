@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Diagnostics platform for Sirius Rangehood."""
+"""Diagnostics platform for PGA rangehood."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.device_registry import DeviceEntry
 
-    from .data import SiriusRangehoodConfigEntry
+    from .data import PgaRangehoodConfigEntry
 
 TO_REDACT = {
     CONF_PASSWORD,
@@ -41,7 +41,7 @@ def _device_summary(device: dict[str, Any]) -> dict[str, Any]:
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     data = entry.runtime_data
@@ -64,18 +64,16 @@ async def async_get_config_entry_diagnostics(
             ),
         },
         "mqtt": {
-            "connected": mqtt.connected if mqtt else False,
-            "host": mqtt.host if mqtt else None,
-        }
-        if mqtt
-        else None,
+            "connected": mqtt.connected,
+            "host": mqtt.host,
+        },
     }
     return async_redact_data(diagnostics, TO_REDACT)
 
 
 async def async_get_device_diagnostics(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: SiriusRangehoodConfigEntry,
+    entry: PgaRangehoodConfigEntry,
     device: DeviceEntry,
 ) -> dict[str, Any]:
     """Return diagnostics for a specific device."""

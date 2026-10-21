@@ -1,5 +1,5 @@
 # Copyright (c) 2026 Warren Spits
-"""Constants for the Sirius Rangehood integration (HA layer)."""
+"""Constants for the PGA rangehood integration (HA layer)."""
 
 from __future__ import annotations
 
@@ -16,10 +16,6 @@ from .api import (
 
 DOMAIN = "pga_rangehood_custom"
 
-# Config-entry schema version; bumped when entry data keys change (see
-# `async_migrate_entry`). v2 = neutral endpoint keys.
-CONFIG_ENTRY_VERSION = 2
-
 CONF_PROVIDER = "provider"
 CONF_ENDPOINT = "endpoint"
 CONF_MQTTS_ENDPOINT = "mqtts_endpoint"
@@ -28,10 +24,11 @@ CONF_USERNAME = "username"
 CONF_PASSWORD = "password"  # noqa: S105
 CONF_INSECURE_TLS = "insecure_tls"
 
-# Pre-provider config-entry keys, renamed to the neutral keys above and migrated
-# in `async_migrate_entry`.
-LEGACY_CONF_ENDPOINT = "sirius_endpoint"
-LEGACY_CONF_MQTTS_ENDPOINT = "sirius_mqtts_endpoint"
+# Config-entry schema version, and the baseline: version 1 was never in the
+# field, so there is no v1 -> v2 migration and entries are simply written at 2.
+# Never lower it, Home Assistant refuses to load an entry whose stored version is
+# higher than the flow's, which leaves an existing install unable to start.
+CONFIG_ENTRY_VERSION = 2
 
 # Provider choices offered during setup.
 PROVIDER_SIRIUS = "sirius"

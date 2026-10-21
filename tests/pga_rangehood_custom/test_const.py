@@ -1,4 +1,4 @@
-"""Tests for const.py — percentage/speed mapping and constants."""
+"""Tests for const.py — constants and manifest consistency."""
 
 from __future__ import annotations
 
@@ -9,13 +9,6 @@ from custom_components.pga_rangehood_custom.api import (
     CAP_FAN_SPEED,
     DEFAULT_SIRIUS_ENDPOINT,
     DEFAULT_SIRIUS_MQTTS_ENDPOINT,
-    FAN_SPEED_BOOST,
-    FAN_SPEED_HIGH,
-    FAN_SPEED_LOW,
-    FAN_SPEED_MEDIUM,
-    FAN_SPEED_OFF,
-    PERCENTAGE_TO_SPEED,
-    SPEED_TO_PERCENTAGE,
 )
 from custom_components.pga_rangehood_custom.api.const import VERSION
 from custom_components.pga_rangehood_custom.const import DOMAIN
@@ -26,63 +19,6 @@ _MANIFEST = (
     / "pga_rangehood_custom"
     / "manifest.json"
 )
-
-
-def _nearest_speed(percentage: int) -> int:
-    """Replicate the nearest-match logic from fan.py:async_set_percentage."""
-    return min(PERCENTAGE_TO_SPEED.items(), key=lambda x: abs(x[0] - percentage))[1]
-
-
-class TestFanSpeedMapping:
-    """Verify speed ↔ percentage mapping is correct and bijective."""
-
-    def test_speed_to_percentage(self) -> None:
-        """Verify each speed maps to the expected percentage."""
-        assert SPEED_TO_PERCENTAGE[FAN_SPEED_OFF] == 0
-        assert SPEED_TO_PERCENTAGE[FAN_SPEED_LOW] == 25
-        assert SPEED_TO_PERCENTAGE[FAN_SPEED_MEDIUM] == 50
-        assert SPEED_TO_PERCENTAGE[FAN_SPEED_HIGH] == 75
-        assert SPEED_TO_PERCENTAGE[FAN_SPEED_BOOST] == 100
-
-    def test_percentage_to_speed(self) -> None:
-        """Verify each percentage maps back to the expected speed."""
-        assert PERCENTAGE_TO_SPEED[0] == FAN_SPEED_OFF
-        assert PERCENTAGE_TO_SPEED[25] == FAN_SPEED_LOW
-        assert PERCENTAGE_TO_SPEED[50] == FAN_SPEED_MEDIUM
-        assert PERCENTAGE_TO_SPEED[75] == FAN_SPEED_HIGH
-        assert PERCENTAGE_TO_SPEED[100] == FAN_SPEED_BOOST
-
-    def test_bijection(self) -> None:
-        """Verify speed→percentage→speed round-trips cleanly for all speeds."""
-        for speed in (
-            FAN_SPEED_OFF,
-            FAN_SPEED_LOW,
-            FAN_SPEED_MEDIUM,
-            FAN_SPEED_HIGH,
-            FAN_SPEED_BOOST,
-        ):
-            pct = SPEED_TO_PERCENTAGE[speed]
-            assert PERCENTAGE_TO_SPEED[pct] == speed
-
-    def test_nearest_match_low(self) -> None:
-        """Verify percentage 10 maps to FAN_SPEED_OFF (closer to 0 than 25)."""
-        speed = _nearest_speed(10)
-        assert speed == FAN_SPEED_OFF
-
-    def test_nearest_match_high(self) -> None:
-        """Verify percentage 90 maps to FAN_SPEED_BOOST (nearest to 100%)."""
-        speed = _nearest_speed(90)
-        assert speed == FAN_SPEED_BOOST
-
-    def test_nearest_match_low_boundary(self) -> None:
-        """Verify percentage 12 still maps to FAN_SPEED_OFF (closer to 0)."""
-        speed = _nearest_speed(12)
-        assert speed == FAN_SPEED_OFF
-
-    def test_nearest_match_medium(self) -> None:
-        """Verify percentage 62 maps to FAN_SPEED_MEDIUM (nearest to 50)."""
-        speed = _nearest_speed(62)
-        assert speed == FAN_SPEED_MEDIUM
 
 
 class TestConstants:

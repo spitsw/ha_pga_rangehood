@@ -53,11 +53,12 @@ Please allow a reasonable window to fix the issue before any public disclosure.
 - Vulnerabilities in **Home Assistant core**, **HACS**, or third-party
   dependencies (report those upstream, e.g. `paho-mqtt`, `aiohttp`).
 - Issues in the **Sirius cloud service or the rangehood firmware** itself.
-- The Sirius MQTT broker's **expired TLS certificate** and the resulting
-  disabled certificate verification (see `ARCHITECTURE.md`, ADR-1) — a known
-  limitation of the upstream service, not a vulnerability here. Likewise, the
-  optional `insecure_tls` setting disables REST TLS verification by explicit
-  user choice.
+- The Sirius MQTT broker's **expired leaf certificate** and the certificate
+  **time check** it is not possible to enforce as a result (see
+  `ARCHITECTURE.md`, ADR-1) — a known limitation of the upstream service, not a
+  vulnerability here. The certificate chain and hostname are still verified;
+  only expiry is relaxed. Likewise, the optional `insecure_tls` setting disables
+  REST TLS verification by explicit user choice.
 - Misconfiguration of the user's own Home Assistant or network.
 
 ## Security-relevant design notes
@@ -67,8 +68,12 @@ Please allow a reasonable window to fix the issue before any public disclosure.
   `Store`. Protecting the Home Assistant instance (filesystem, backups, access
   control) is the user's responsibility.
 - **TLS:** the REST client verifies certificates unless the user opts into
-  `insecure_tls`. The **MQTT** connection uses `CERT_NONE` because the Sirius
-  broker certificate has expired (ADR-1).
+  `insecure_tls`. The **MQTT** connection verifies the broker's certificate
+  **chain and hostname** (`CERT_REQUIRED`, `check_hostname=True`) against the
+  system trust store plus a bundled copy of DigiCert's legacy Global Root CA,
+  but disables OpenSSL's certificate **time check**
+  (`X509_V_FLAG_NO_CHECK_TIME`, `0x200000`) because the broker's leaf has been
+  expired since 2024 and is never renewed (ADR-1). It never uses `CERT_NONE`.
 - **Custom endpoints** may be configured by the user; the integration connects
   only to the endpoint the user supplies.
 
