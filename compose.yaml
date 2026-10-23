@@ -1,7 +1,7 @@
 services:
   homeassistant:
     container_name: ha-dev
-    image: ghcr.io/home-assistant/home-assistant:stable
+    image: ghcr.io/home-assistant/home-assistant:stable@sha256:407b89cd11a8cb67d388d21739a226c74acbbebe1ac59e3b83b11b43ce76b98f
     restart: unless-stopped
     ports:
       - "8124:8123"
