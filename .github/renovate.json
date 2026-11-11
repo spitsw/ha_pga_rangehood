@@ -3,7 +3,9 @@
   "extends": [
     "config:best-practices"
   ],
-  "baseBranches": ["development"],
+  "baseBranchPatterns": [
+    "development"
+  ],
   "minimumReleaseAge": "3 days",
   "osvVulnerabilityAlerts": true,
   "dependencyDashboardOSVVulnerabilitySummary": "all",
