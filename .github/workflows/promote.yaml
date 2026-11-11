@@ -1,0 +1,64 @@
+name: Promote
+
+on:
+  # 21:00 UTC Sunday is Monday morning in Australia/Melbourne.
+  schedule:
+    - cron: "0 21 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  promote:
+    name: "development -> main"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # fetch-depth 0 makes checkout fetch every branch (and tags), so
+          # origin/main and origin/development are both available below.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Open the promotion pull request
+        # main requires a PR, and this token is the branch-protection bypass
+        # actor that the release workflow relies on.
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::error::RELEASE_TOKEN is not set; cannot open the promotion PR"
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet origin/development > /dev/null; then
+            echo "no development branch on the remote; nothing to promote"
+            exit 0
+          fi
+          # Nothing to promote when development's history is already merged
+          # into main (merge-commit promotion) or its content already matches
+          # main (squash promotion). Checking both keeps scheduled runs
+          # idempotent regardless of how the previous PR was merged.
+          if git merge-base --is-ancestor origin/development origin/main; then
+            echo "development is already merged into main; nothing to promote"
+            exit 0
+          fi
+          if git diff --quiet origin/main origin/development; then
+            echo "development matches main; nothing to promote"
+            exit 0
+          fi
+          existing="$(gh pr list --base main --head development --state open --json number --jq '.[0].number // empty')"
+          if [ -n "${existing}" ]; then
+            echo "promotion PR #${existing} is already open"
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head development \
+            --title "chore: promote development into main" \
+            --body "Batched dependency and integration updates from development.
+
+          Merge this with a merge commit rather than a squash: keeping development's history as an ancestor of main is what lets the scheduled promotion run recognise the batch as already promoted. Merging also triggers the release, since semantic-release derives one version from the commits that land on main."

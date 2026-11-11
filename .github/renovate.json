@@ -3,6 +3,7 @@
   "extends": [
     "config:best-practices"
   ],
+  "baseBranches": ["development"],
   "minimumReleaseAge": "3 days",
   "osvVulnerabilityAlerts": true,
   "dependencyDashboardOSVVulnerabilitySummary": "all",
@@ -13,6 +14,10 @@
       "description": "Home Assistant should match the homeassistant key in hacs.json",
       "matchPackageNames": ["homeassistant"],
       "enabled": false
+    },
+    {
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
     }
   ]
 }
