@@ -8,7 +8,9 @@
   ],
   "minimumReleaseAge": "3 days",
   "osvVulnerabilityAlerts": true,
-  "dependencyDashboardOSVVulnerabilitySummary": "all",
+  "dependencyDashboard": {
+    "osvVulnerabilitySummary": "all"
+  },
   "timezone": "Australia/Melbourne",
   "customManagers": [],
   "packageRules": [
